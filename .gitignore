@@ -7,3 +7,5 @@ shots/
 __pycache__/
 # Rendering work files (textures, raw filmstrips, drafts): rebuilt by art/*.py
 art/build/
+art/build_*/
+art/canvas/

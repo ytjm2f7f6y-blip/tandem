@@ -1,0 +1,122 @@
+name: Build Mac plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # lets version tags (v0.1.0 etc.) attach the disk image to a release
+
+jobs:
+  mac:
+    name: macOS universal (AU)
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      ARTEFACTS: build/Tandem_artefacts/Release
+      NAME: Tandem
+    defaults:
+      run:
+        shell: bash   # adds pipefail, so a failing command piped into tee still fails the step
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure
+        run: >
+          cmake -B build -G "Unix Makefiles"
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Engine and plugin tests
+        run: ctest --test-dir build --output-on-failure --verbose 2>&1 | tee tests.log
+
+      - name: Window snapshots
+        run: |
+          mkdir -p shots
+          build/ui_snapshot_artefacts/Release/ui_snapshot shots 2>&1 | tee ui.log
+
+      - name: Upload window snapshots
+        uses: actions/upload-artifact@v6
+        with:
+          name: window-snapshots
+          path: shots/*.png
+          retention-days: 14
+
+      - name: Sign (ad hoc, no Apple developer account needed)
+        run: |
+          b="$ARTEFACTS/AU/$NAME.component"
+          codesign --force --deep --sign - "$b"
+          codesign --verify --deep --strict "$b"
+          lipo -info "$b/Contents/MacOS/$NAME" | tee binary.log
+          du -sh "$b" | tee -a binary.log
+
+      - name: Validate Audio Unit (auval, the check Logic runs)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ARTEFACTS/AU/$NAME.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          auval -strict -v aumu Tndm SamP 2>&1 | tee auval.log
+
+      - name: Validate Audio Unit (pluginval)
+        run: |
+          curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --skip-gui-tests \
+            --timeout-ms 900000 --validate ~/Library/Audio/Plug-Ins/Components/"$NAME".component 2>&1 | tee pluginval.log
+
+      - name: Package disk image
+        run: |
+          VERSION=$(sed -n 's/^project(Tandem VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          STAGE="dist/tandem"
+          mkdir -p "$STAGE"
+          cp -R "$ARTEFACTS/AU/$NAME.component" "$STAGE/"
+          cp packaging/install.sh "$STAGE/install.sh"
+          cp packaging/READ_ME.txt "$STAGE/READ ME.txt"
+          # Versioned volume name, so an older disk still mounted can't be mistaken for it.
+          # hdiutil is occasionally "Resource busy" on GitHub's Macs: try a few times.
+          for attempt in 1 2 3 4; do
+            if hdiutil create -volname "tandem $VERSION" -srcfolder "$STAGE" -ov -format UDZO dist/tandem-mac.dmg; then break; fi
+            echo "hdiutil failed (attempt $attempt), retrying"
+            sleep $((attempt * 5))
+            [ "$attempt" = 4 ] && exit 1
+          done
+
+      - name: Upload disk image
+        uses: actions/upload-artifact@v6
+        with:
+          name: tandem-${{ env.VERSION }}-mac
+          path: dist/tandem-mac.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to release (version tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/tandem-mac.dmg
+
+      # Short results as run annotations, readable on the run page and via the API.
+      - name: Report
+        if: always()
+        run: |
+          note() {
+            [ -s "$2" ] || return 0
+            msg=$(sed -e 's/%/%25/g' -e 's/\r//g' "$2" | awk 'BEGIN{ORS="%0A"} {print}')
+            echo "::notice title=$1::$msg"
+          }
+          grep -E "FAIL|passed|real time|of one core" tests.log > tests.short 2>/dev/null || true
+          grep -nE "Starting tests|SUCCESS|FAIL|ERROR|Error|Testing with" pluginval.log | tail -n 20 > pluginval.short 2>/dev/null || true
+          tail -n 15 auval.log > auval.short 2>/dev/null || true
+          note "Engine and plugin tests" tests.short
+          note "Binary" binary.log
+          note "auval (tail)" auval.short
+          note "pluginval (summary)" pluginval.short
