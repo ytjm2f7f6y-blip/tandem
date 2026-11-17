@@ -15,22 +15,32 @@ Tandem: install
 Using it
 --------
 Tandem is a two-layer synthesizer. This build (stage 1) plays layer 1:
-two super oscillators, the dual filter, LFO 1, three envelopes, the
-voice modes and the effects.
+two super oscillators, the dual filter, two LFOs, three envelopes, the
+voice modes and the effects. The layer keys, play mode, arpeggiator and
+layer 2's mixer are on the panel already; they say "stage 2" for now.
 
-Knobs and faders: drag (Shift for fine), double-click for the default.
-Levers: click the side you want. Rotary switches: click to step round
-(Alt-click to step back).
+Top row: the sound. Bottom row: playing and programming.
 
-The display: VOICE, MOD and FX each have pages. Turn A (or click it)
-for the next page; B, C and D change the three columns. You can also
-drag the columns on the display itself. Moving any control shows its
-value on the display for a moment.
+Knobs and faders: drag (Shift for fine), scroll, double-click for the
+default. Keys with lamps: click to step through; the lamps show which.
+Lamp rings (waveforms, octave): click or drag.
 
-FILTER TYPE: the arrows step through the types for the routing
-(STEREO, PARALLEL, SERIES); click the window for the list.
+The display: PERF, VOICE, MOD, ARP and FX each have pages (press again,
+or use the PAGE arrows). The four encoders under the display change the
+four columns above them; you can also drag a column. Moving any control
+shows its value for a moment.
 
-Point at any control and the strip under the faceplate says what it
-does. The preset's name is on the tape at the bottom: click it for
-the list (factory, then your own) and to save. A and B hold two
-whole sounds to flip between. SET (bottom rail) sizes the window.
+SHIFT: click it, then touch any control, for that control's page (SHIFT
++ CUTOFF: routing, type, resonance type, keytrack). Right-click does the
+same. Red-orange legends are their own jobs: SHIFT + a patch key picks
+the bank; SHIFT + COMPARE starts from a blank patch.
+
+Patches: eight keys, eight banks. Right-click a patch key (or click the
+top line of the display) for the list. WRITE saves the sound as one of
+yours (its lamp blinks when the patch has changed). COMPARE flips
+between the patch as edited and as stored.
+
+SETUP opens the drawer: master tune, transpose, velocity and pressure
+response, MIDI channel, sustain pedal polarity, AGE and panel size.
+
+Hover over any control for a note on what it does.
