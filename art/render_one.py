@@ -37,6 +37,8 @@ def _arg(name):
 
 
 CROPS = _arg("--crops")
+STATE = _arg("--state")          # None: the mockup. "bare": the plugin's background. "lit": every lamp on.
+STRIPS = _arg("--strips")        # "all" or a comma list of strip names: knob filmstrips for the plugin
 CROP_PX = float(_arg("--crop-px") or 4)
 PAGES = "--pages" in sys.argv
 NO_MAIN = "--no-main" in sys.argv
@@ -146,6 +148,11 @@ def led_obj(lit, r=1.8):
     return [ring, lens]
 
 
+def lit_state(mockup_lit):
+    """A lamp's state: as the mockup has it, or all off (bare) or all on (lit) for the plugin."""
+    return mockup_lit if not STATE else STATE == "lit"
+
+
 def arrow(direction):
     M = R.mats()
     s = 3.2
@@ -164,10 +171,10 @@ def key_obj(c):
     objs = [R.prism("key_well", R.rounded_rect_pts(w + 3.4, h + 3.4, 2.6), -0.2, 0.4, M["black_plastic"], bevel=0.3),
             R.prism("key_cap", R.rounded_rect_pts(w, h, 2.2), 0.3, 6.2, capm, bevel=1.2, taper=0.92)]
     if c.get("led"):
-        objs += offset(led_obj(bool(c["set"])), 0, -(h / 2 + 5.8))
+        objs += offset(led_obj(lit_state(bool(c["set"]))), 0, -(h / 2 + 5.8))
     if c.get("lamps"):
         for i, lx in enumerate(L.lamp_xs(c)):
-            objs += offset(led_obj(i in c["lit"], r=1.6), lx - c["x"], L.lamp_y(c) - c["y"])
+            objs += offset(led_obj(lit_state(i in c["lit"]), r=1.6), lx - c["x"], L.lamp_y(c) - c["y"])
     return objs
 
 
@@ -197,11 +204,11 @@ def build():
         R.box("tray_lip", dr["x0"], dr["y1"] - 12, dr["x1"], dr["y1"] + 2, -3.0, 3.0, tray, bevel=1.6)
 
     D = L.DISPLAY
-    R.place(R.display_box(D["w"], D["h"], "disp", show="display_show.png"), D["x"], D["y"], Z)
+    R.place(R.display_box(D["w"], D["h"], "disp", show=None if STATE else "display_show.png"), D["x"], D["y"], Z)
     for i, (x, y) in enumerate(L.DISPLAY_SCREWS):
         R.place(R.screw((i * 61 + 20) % 180), x, y, Z + 4.6)
     TW = L.TYPE_WIN
-    R.place(R.display_box(TW["w"], TW["h"], "ftype", show="type_show.png"), TW["x"], TW["y"], Z)
+    R.place(R.display_box(TW["w"], TW["h"], "ftype", show=None if STATE else "type_show.png"), TW["x"], TW["y"], Z)
 
     glyphs = {(round(x), round(y)): s for s, x, y, size, ink, a in L.PRINT if ink == "glyph"}
     for c in L.CONTROLS:
@@ -210,12 +217,13 @@ def build():
         z = -0.8 if y > L.H_PANEL else zc
         CUR["box"] = L.box_of(x, y)
         if t == "knob":
-            R.place(R.knob(c["kind"], None, x), x, y, z, rot_deg=L.set_angle(c))
+            if not STATE:
+                R.place(R.knob(c["kind"], None, x), x, y, z, rot_deg=L.set_angle(c))
             if c["kind"] == "ring":
                 for i, a in enumerate(c["steps"]):
                     lx = x + math.sin(math.radians(a)) * L.RING_LED_R
                     ly = y - math.cos(math.radians(a)) * L.RING_LED_R
-                    R.place(led_obj(i == c["set"], r=1.5), lx, ly, z)
+                    R.place(led_obj(lit_state(i == c["set"]), r=1.5), lx, ly, z)
         elif t == "key":
             objs = key_obj(c)
             g = glyphs.get((round(x), round(y)))
@@ -224,11 +232,80 @@ def build():
             R.place(objs, x, y, z)
         elif t == "fader":
             R.place(R.fader_plate(c["travel"]), x, y, z)
-            ty = y + c["travel"] / 2 - c["travel"] * c["set"]
-            R.place(R.fader_cap(), x, ty, z + 0.6)
+            if not STATE:
+                ty = y + c["travel"] / 2 - c["travel"] * c["set"]
+                R.place(R.fader_cap(), x, ty, z + 0.6)
         elif t == "lamp":
-            R.place(R.jewel(c["color"], lit=c["on"], r=c["r"]), x, y, z)
+            on = c["on"] if not STATE else (STATE == "lit" or c["id"] == "power")
+            R.place(R.jewel(c["color"], lit=on, r=c["r"]), x, y, z)
     return sc
+
+
+# ---------------------------------------------------------------------------
+# Knob filmstrips for the plugin: one per kind and cap colour, each frame with its own shadow.
+SHADOW_MARGIN = 14
+
+
+def strip_specs():
+    """name -> (kind, cap box, angles). Continuous knobs sweep 121 frames; encoders turn all the way;
+    a ring encoder only ever rests pointing at one of its lamps."""
+    specs = {}
+    for c in L.CONTROLS:
+        if c["type"] != "knob":
+            continue
+        box = L.box_of(c["x"], c["y"])
+        cap = T["caps"][box]
+        cname = next(k for k, v in COLOURS.items() if v == cap)
+        if c.get("encoder"):
+            specs[f"enc_{cname}"] = (c["kind"], box, [4.0 * i for i in range(90)])
+        elif c["kind"] == "ring":
+            nm = f"ring_{cname}"
+            prev = specs.get(nm, (None, None, []))[2]
+            specs[nm] = ("ring", box, sorted(set(prev) | {round(a, 3) for a in c["steps"]}))
+        else:
+            n = L.STRIP_FRAMES
+            specs[f"{c['kind']}_{cname}"] = (c["kind"], box, [-L.SWEEP + 2 * L.SWEEP * i / (n - 1) for i in range(n)])
+    return specs
+
+
+COLOURS = {"cream": (0.93, 0.89, 0.78), "orange": (0.93, 0.45, 0.18), "teal": (0.20, 0.60, 0.62),
+           "mustard": (0.92, 0.72, 0.22), "red": (0.80, 0.22, 0.18)}
+
+
+def render_strip(name, kind, box_id, angles, samples):
+    from PIL import Image
+    r = L.KNOBS[kind]
+    box = 2 * r + 2 * SHADOW_MARGIN
+    sc = R.sprite_scene(box, box, catcher=True)
+    sc.cycles.samples = samples
+    CUR["box"] = box_id
+    root = R.parent_to(R.knob(kind, None, 0.0), "knob")
+    tmp = os.path.join(BUILD, "frames", name)
+    os.makedirs(tmp, exist_ok=True)
+    frames = []
+    for i, ang in enumerate(angles):
+        root.rotation_euler.z = math.radians(-ang)
+        p = os.path.join(tmp, f"{i:03d}.png")
+        R.render_to(p)
+        frames.append(p)
+    ims = [Image.open(p) for p in frames]
+    fw, fh = ims[0].size
+    out = Image.new("RGBA", (fw, fh * len(ims)))
+    for i, im in enumerate(ims):
+        out.paste(im, (0, i * fh))
+    os.makedirs(os.path.join(BUILD, "strips"), exist_ok=True)
+    path = os.path.join(BUILD, "strips", f"{name}.png")
+    out.save(path, optimize=True)
+    print("wrote", path, out.size, len(angles), "frames")
+
+
+def render_fader_cap(samples):
+    sc = R.sprite_scene(*L.FADER_BOX, catcher=True)
+    sc.cycles.samples = samples
+    R.place(R.fader_cap(), 0, 0, 0.6)
+    os.makedirs(os.path.join(BUILD, "sprites"), exist_ok=True)
+    R.render_to(os.path.join(BUILD, "sprites", "fader_cap.png"))
+    print("wrote fader_cap")
 
 
 def render_crop(sc, x, y, w, h, path, fmt="JPEG"):
@@ -244,6 +321,16 @@ def render_crop(sc, x, y, w, h, path, fmt="JPEG"):
 
 
 if __name__ == "__main__":
+    if STRIPS:
+        specs = strip_specs()
+        names = list(specs) if STRIPS == "all" else STRIPS.split(",")
+        for nm in names:
+            if nm == "fader_cap":
+                render_fader_cap(R.SAMPLES or 64)
+                continue
+            kind, box_id, angles = specs[nm]
+            render_strip(nm, kind, box_id, angles, R.SAMPLES or 64)
+        sys.exit(0)
     sc = build()
     if not NO_MAIN:
         sc.render.image_settings.file_format = "JPEG"

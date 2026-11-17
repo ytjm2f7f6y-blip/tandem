@@ -218,6 +218,7 @@ inline std::vector<Def> layerDefs() {
 
 inline juce::String layerId(int layer, const juce::String& key) { return "l" + juce::String(layer + 1) + "_" + key; }
 inline const char* kVolumeId = "volume";
+inline bool isSetupId(const juce::String& id) { return id.startsWith("setup_"); }
 constexpr int kLayersExposed = 1;     // stage 1
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
@@ -240,6 +241,20 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     }
     auto a = AudioParameterFloatAttributes().withStringFromValueFunction(ten);
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID{kVolumeId, 1}, "Volume", NormalisableRange<float>(0, 1), 0.8f, a));
+
+    // The setup drawer: the instrument's set-once settings. Not part of a sound, not automated.
+    auto fa = [](String (*fm)(float, int)) { return AudioParameterFloatAttributes().withStringFromValueFunction(fm).withAutomatable(false); };
+    auto ca = AudioParameterChoiceAttributes().withAutomatable(false);
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID{"setup_tune", 1}, "Master Tune", NormalisableRange<float>(-50, 50), 0.0f, fa(cents)));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID{"setup_transpose", 1}, "Transpose", NormalisableRange<float>(-12, 12, 1), 0.0f, fa(semis)));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID{"setup_velocity", 1}, "Velocity Response", StringArray{"Soft", "Normal", "Hard"}, 1, ca));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID{"setup_pressure", 1}, "Pressure Response", StringArray{"Off", "Normal", "Hard"}, 1, ca));
+    StringArray chans{"All"};
+    for (int c = 1; c <= 16; ++c) chans.add(String(c));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID{"setup_ch1", 1}, "MIDI Channel L1", chans, 0, ca));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID{"setup_ch2", 1}, "MIDI Channel L2", chans, 0, ca));
+    layout.add(std::make_unique<AudioParameterFloat>(ParameterID{"setup_age", 1}, "Age", NormalisableRange<float>(0, 1), 0.5f, fa(ten)));
+    layout.add(std::make_unique<AudioParameterChoice>(ParameterID{"setup_pedal", 1}, "Sustain Pedal", StringArray{"Normal", "Inverted"}, 0, ca));
     return layout;
 }
 

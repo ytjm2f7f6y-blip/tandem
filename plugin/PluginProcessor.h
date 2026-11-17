@@ -47,7 +47,7 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // ---- parameters (message thread), by layer key
-    juce::RangedAudioParameter* param(const juce::String& key, int layer = 0) const;
+    juce::RangedAudioParameter* param(const juce::String& key, int layer = 0) const;      // a layer key, "volume" or "setup_..."
     juce::RangedAudioParameter* volume() const { return volume_; }
     float value(const juce::String& key, int layer = 0) const;
     static void set(juce::RangedAudioParameter* p, float value);      // in the parameter's own units, host told
@@ -58,6 +58,7 @@ public:
     void loadPreset(int index);
     void stepPreset(int delta);
     juce::String presetName() const { return presetName_; }
+    int presetIndex() const { return presetIndex_; }
     bool presetEdited() const;
     juce::String saveUserPreset(const juce::String& name);
     bool deleteUserPreset(int index);
@@ -68,9 +69,12 @@ public:
     void selectAB(int slot);
 
     // ---- the window
+    static constexpr int kMenus = 5;         // the display's menus: perf, voice, mod, arp, fx
     float uiScale = 0.8f;
-    int menu = 1;                            // the display's menu: 0 voice, 1 mod, 2 fx
-    int page[3] = {0, 0, 0};                 // the page in each
+    int menu = 2;
+    int page[kMenus] = {0, 0, 0, 0, 0};      // the page in each
+    int bank = 0;                            // the patch keys' bank, A-H
+    bool drawerOpen = false;
     bool overdriven() const { return odrive_.load(std::memory_order_relaxed); }
     int voicesSounding() const { return sounding_.load(std::memory_order_relaxed); }
     double sampleRate() const { return sampleRate_; }
@@ -88,6 +92,10 @@ private:
     tp::LayerReader reader_[td::Engine::kLayers];
     juce::RangedAudioParameter* volume_ = nullptr;
     std::atomic<float>* volumeRaw_ = nullptr;
+    struct Setup { std::atomic<float>* tune = nullptr, *transpose = nullptr, *velocity = nullptr, *pressure = nullptr, *ch1 = nullptr, *ch2 = nullptr, *age = nullptr, *pedal = nullptr; } setup_;
+    int noteMap_[128];                       // the note each key started, so transposing while it is held cannot strand it
+    float lastPedal_ = 0.0f;                 // the sustain pedal as last sent (0..1), and the polarity it was read with
+    bool lastPedalInv_ = false;
     std::vector<juce::RangedAudioParameter*> all_;
     std::vector<juce::String> layerKeys_;
 

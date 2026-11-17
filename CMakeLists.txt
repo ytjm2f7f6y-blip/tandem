@@ -58,12 +58,11 @@ if(TD_BUILD_PLUGIN)
         AU_MAIN_TYPE kAudioUnitType_MusicDevice
         VST3_CATEGORIES Instrument Synth)
 
-    # The rendered faceplate and parts (art/), and the fonts: Caveat Brush and
-    # Barlow Semi Condensed (SIL Open Font License, plugin/fonts).
+    # The rendered panel and parts (art/), and the display's font: Barlow Semi
+    # Condensed (SIL Open Font License, plugin/fonts).
     file(GLOB TD_ASSETS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/plugin/assets/*)
     juce_add_binary_data(TandemData SOURCES
         ${TD_ASSETS}
-        plugin/fonts/CaveatBrush-Regular.ttf
         plugin/fonts/BarlowSemiCondensed-SemiBold.ttf)
     set_target_properties(TandemData PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 

@@ -52,6 +52,7 @@ public:
 
     void setTempo(float bpm) { bpm_ = bpm > 0.0f ? bpm : 120.0f; }
     void bend(float v) { bend_ = clampf(v, -1.0f, 1.0f); }
+    void setTune(float semis) { tune_ = clampf(semis, -24.0f, 24.0f); }      // master tune and transpose
     void modWheel(float v) { mw_ = clampf(v, 0.0f, 1.0f); }
     void aftertouch(float v) { at_ = clampf(v, 0.0f, 1.0f); }
     void expression(float v) { expr_ = clampf(v, 0.0f, 1.0f); }
@@ -369,7 +370,7 @@ private:
     // Things that change while notes play (tempo for synced times).
     void configureLive() {
         if (ctx_.bpm != bpm_) configure();
-        ctx_.bendSemis = bend_ * p_.bendRange;
+        ctx_.bendSemis = bend_ * p_.bendRange + tune_;
         ctx_.bendVcfOct = bend_ * p_.bendVcf * 4.0f;
         ctx_.modWheel = mw_;
         ctx_.aftertouch = at_;
@@ -397,7 +398,7 @@ private:
     int os_ = 2;
     uint32_t seed_ = 1;
     uint64_t clock_ = 1;
-    float bpm_ = 120.0f, bend_ = 0.0f, mw_ = 0.0f, at_ = 0.0f, expr_ = 0.0f;
+    float bpm_ = 120.0f, bend_ = 0.0f, mw_ = 0.0f, at_ = 0.0f, expr_ = 0.0f, tune_ = 0.0f;
     bool sustain_ = false, odrive_ = false;
     std::array<int, 32> held_{};
     std::array<float, 32> heldVel_{};

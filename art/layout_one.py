@@ -19,6 +19,7 @@ DRAWER_H = 150
 H = H_PANEL + (DRAWER_H if DRAWER_OPEN else 0)
 SCALE = 2
 SWEEP = 150.0
+STRIP_FRAMES = 81
 CHEEK = 22                      # cream end cheeks
 PANEL_X = (CHEEK, W - CHEEK)
 
@@ -31,7 +32,7 @@ RING_LABEL_R = 38.0
 RING_ICON_R = 41.0
 LAMP_SP = 21.0                  # lamps over a key, apart
 FADER_CAP = (16.0, 24.0)
-FADER_BOX = (30.0, 40.0)
+FADER_BOX = (40.0, 52.0)
 FADER_PLATE_W = 12.0
 POINTERS = {}
 POINTER_COLOURS = {}
@@ -153,7 +154,7 @@ FADER_Y, FADER_TRAVEL = 244, 136
 fader("l_rate", 1152, FADER_Y, FADER_TRAVEL, "RATE", scale=True, set_=0.55)
 fader("l_delay", 1186, FADER_Y, FADER_TRAVEL, "DELAY", set_=0.0)
 knob("lfo2_rate", "med", 1076, 404, "RATE", set_=0.45)
-key("lfo2_sync", 1160, 412, "CLOCK", set_=False)
+key("lfo2_trig", 1160, 412, "TRIGGER", lamps=["WHL", "AT", "ON"], lit=(0,))
 
 # ---- ENVELOPES
 SUBHEADS += [("ENV 1", 1232, 1402, 132), ("ENV 2", 1424, 1594, 132)]
@@ -245,13 +246,13 @@ DRAWER = {"x0": 60, "x1": W - 60, "y0": H_PANEL + 4, "y1": H_PANEL + DRAWER_H - 
 if DRAWER_OPEN:
     dy = H_PANEL + 62
     knob("d_tune", "trim", 150, dy, "MASTER TUNE", FINE, ticks(10), set_=0.5)
-    knob("d_bend", "trim", 300, dy, "BEND RANGE", labels([(0, "1"), (1, "12")]), ticks(11), set_=1 / 11)
+    knob("d_trans", "trim", 300, dy, "TRANSPOSE", labels([(0, "–12"), (0.5, "0"), (1, "+12")]), ticks(12), set_=0.5)
     key("d_vel", 456, dy + 6, "VELOCITY", lamps=["SOFT", "NORM", "HARD"], lit=(1,))
-    key("d_press", 612, dy + 6, "PRESSURE", lamps=["VIB", "CUTOFF", "VCA"], lit=(1,))
-    knob("d_ch1", "trim", 762, dy, "MIDI CH  L1", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=1 / 16)
-    knob("d_ch2", "trim", 892, dy, "MIDI CH  L2", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=2 / 16)
-    knob("d_age", "trim", 1036, dy, "AGE", ZERO_TEN, T10, set_=0.3)
-    key("d_quality", 1180, dy + 6, "QUALITY", lamps=["ECO", "HI"], lit=(1,))
+    key("d_press", 612, dy + 6, "PRESSURE", lamps=["OFF", "NORM", "HARD"], lit=(1,))
+    knob("d_ch1", "trim", 762, dy, "MIDI CH  L1", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=0.0)
+    knob("d_ch2", "trim", 892, dy, "MIDI CH  L2", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=0.0)
+    knob("d_age", "trim", 1036, dy, "AGE", ZERO_TEN, T10, set_=0.5)
+    key("d_pedal", 1180, dy + 6, "PEDAL", lamps=["NORM", "INV"], lit=(0,))
     key("d_size", 1324, dy + 6, "SIZE", lamps=["80", "100", "125"], lit=(0,))
     key("d_close", 1500, dy + 6, "CLOSE", w=40, h=22, led=False)
 

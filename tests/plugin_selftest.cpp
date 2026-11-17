@@ -101,6 +101,42 @@ int main() {
         p.processBlock(io, up);
         for (int b = 0; b < 100; ++b) { juce::MidiBuffer none; p.processBlock(io, none); }
         CHECK(p.voicesSounding() == 0, "lifting the pedal lets it go");
+
+        // The setup drawer: a MIDI channel, transposing while a key is held, the pedal turned round,
+        // and none of it part of a sound.
+        auto run = [&](juce::MidiBuffer m, int blocks) {
+            p.processBlock(io, m);
+            for (int b = 0; b < blocks; ++b) { juce::MidiBuffer none; p.processBlock(io, none); }
+        };
+        auto note = [](int ch, int n, bool on) { juce::MidiBuffer m; m.addEvent(on ? juce::MidiMessage::noteOn(ch, n, 0.8f) : juce::MidiMessage::noteOff(ch, n), 0); return m; };
+        TandemProcessor::set(p.param("setup_ch1"), 2.0f);
+        run(note(1, 60, true), 4);
+        const bool deaf = p.voicesSounding() == 0;
+        run(note(2, 60, true), 4);
+        const bool hears = p.voicesSounding() == 1;
+        run(note(2, 60, false), 100);
+        CHECK(deaf && hears && p.voicesSounding() == 0, "layer 1 listens on its own MIDI channel only");
+        TandemProcessor::set(p.param("setup_ch1"), 0.0f);
+        run(note(1, 60, true), 4);
+        TandemProcessor::set(p.param("setup_transpose"), 7.0f);
+        run(note(1, 60, false), 100);
+        CHECK(p.voicesSounding() == 0, "transposing while a key is held cannot leave its note stuck");
+        TandemProcessor::set(p.param("setup_pedal"), 1.0f);
+        run(note(1, 62, true), 1);
+        run(note(1, 62, false), 40);
+        const bool held = p.voicesSounding() == 1;        // an inverted pedal reads "up" as down
+        juce::MidiBuffer press;
+        press.addEvent(juce::MidiMessage::controllerEvent(1, 64, 127), 0);
+        run(press, 100);
+        CHECK(held && p.voicesSounding() == 0, "an inverted sustain pedal works the other way round");
+        TandemProcessor::set(p.param("setup_pedal"), 0.0f);
+        TandemProcessor::set(p.param("setup_transpose"), 0.0f);
+        p.loadPreset(2);
+        TandemProcessor::set(p.param("setup_age"), 0.9f);
+        TandemProcessor::set(p.param("setup_tune"), 20.0f);
+        CHECK(!p.presetEdited(), "the setup drawer is not part of a sound");
+        TandemProcessor::set(p.param("setup_age"), 0.5f);
+        TandemProcessor::set(p.param("setup_tune"), 0.0f);
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;
