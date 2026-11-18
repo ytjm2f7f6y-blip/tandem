@@ -49,7 +49,7 @@ int main() {
         p.prepareToPlay(sr, block);
         const int n = p.getParameters().size();
         std::printf("      %d parameters\n", n);
-        CHECK(n > 120, "a layer's parameters and the volume are all there");
+        CHECK(n > 350 && p.param("cutoff", 1) != nullptr && p.param("perf_mode") != nullptr, "both layers' parameters, the play mode's and the volume are all there");
         CHECK(p.getLatencySamples() == 24, "the latency the host is told is the decimator's (24 samples at 48 kHz)");
 
         const Stats quiet = play(p, sr, block, {}, 0.2, 0.0);
@@ -235,12 +235,137 @@ int main() {
         const auto reading = te->accessibleReading("f_cutoff"), shown = te->accessibleReading("disp"), arp = te->accessibleReading("arp_on");
         std::printf("      VoiceOver: %s | %s | %s\n", reading.toRawUTF8(), arp.toRawUTF8(), shown.substring(0, 60).toRawUTF8());
         CHECK(cutoff && std::abs(p.param("cutoff")->getValue() - (before - 0.01f)) < 1e-4f && reading.startsWith("slider: Cutoff, ") && reading.endsWith("Hz")
-                  && arp.endsWith("arrives in stage 2") && shown.startsWith("text: Display, MOD"),
+                  && arp == "button: Arpeggiator, Off" && shown.startsWith("text: Display, MOD"),
               "the keyboard: Cutoff's stand-in takes the arrow keys, and VoiceOver hears what each control is and reads");
         int focusable = 0;
         for (auto* c : te->getChildren()) focusable += c->getWantsKeyboardFocus();
         std::printf("      %d controls on the keyboard's path\n", focusable);
         CHECK(focusable > 100, "Tab reaches every knob, fader and key");
+    }
+
+    {   // Stage 2: the second layer, the play modes, the arpeggiators, the side chain.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        juce::AudioBuffer<float> io(2, block);
+        auto run = [&](juce::MidiBuffer m, int blocks) {
+            p.processBlock(io, m);
+            for (int b = 0; b < blocks; ++b) { juce::MidiBuffer none; p.processBlock(io, none); }
+        };
+        auto note = [](int n, bool on, int ch = 1) { juce::MidiBuffer m; m.addEvent(on ? juce::MidiMessage::noteOn(ch, n, 0.8f) : juce::MidiMessage::noteOff(ch, n), 0); return m; };
+        auto sounding = [&](int L) { return p.engine().layer(L).soundingVoices(); };
+
+        // LAYER 2: the panel edits layer 2, and in SINGLE it is the one that plays.
+        te->pressControl("layer_2");
+        const bool editing = p.editLayer() == 1 && p.param("cutoff")->getParameterID() == "l2_cutoff";
+        TandemProcessor::set(p.param("cutoff"), 0.4f);
+        run(note(60, true), 4);
+        const bool l2 = sounding(1) > 0 && sounding(0) == 0;
+        run(note(60, false), 100);
+        CHECK(editing && l2 && std::abs(p.value("cutoff", 0) - 1.0f) < 1e-4f && std::abs(p.value("cutoff", 1) - 0.4f) < 1e-4f && p.presetEdited(),
+              "LAYER 2: the panel edits layer 2 (layer 1 untouched), and SINGLE plays it");
+        CHECK(!p.canUndo() || p.undoName() != "EDIT LAYER", "choosing a layer to edit is not an edit to undo");
+
+        // SHIFT + LAYER 1 swaps them; SHIFT + LAYER 2 copies the edited layer onto the other.
+        te->openPageFor("layer_1");
+        const bool swapped = std::abs(p.value("cutoff", 0) - 0.4f) < 1e-4f && std::abs(p.value("cutoff", 1) - 1.0f) < 1e-4f;
+        te->doUndo();
+        const bool unswapped = std::abs(p.value("cutoff", 1) - 0.4f) < 1e-4f;
+        te->openPageFor("layer_2");
+        CHECK(swapped && unswapped && std::abs(p.value("cutoff", 0) - 0.4f) < 1e-4f, "SHIFT + LAYER 1 swaps the layers (and UNDO swaps them back); SHIFT + LAYER 2 copies");
+
+        // The play mode ring: DUAL plays both.
+        te->selectLampFor("play_mode", td::kPlayDual);
+        run(note(60, true), 4);
+        const bool dual = sounding(0) > 0 && sounding(1) > 0;
+        run(note(60, false), 100);
+        CHECK(juce::roundToInt(p.value("perf_mode")) == td::kPlayDual && dual, "the PLAY MODE ring: DUAL plays both layers");
+
+        // ZONES: SHIFT + PLAY MODE, then a key sets the split.
+        te->openPageFor("play_mode");
+        const bool zones = p.menu == 0 && juce::String(TandemEditor::pages(0)[size_t(p.page[0])].title) == "ZONES" && p.learningSplit();
+        run(note(72, true), 2);
+        const int learnt = p.learnedSplit();
+        run(note(72, false), 50);
+        CHECK(zones && learnt == 72 && !p.learningSplit(), "SHIFT + PLAY MODE opens ZONES; the next key played is the split");
+
+        // MIDI channels: each layer its own.
+        TandemProcessor::set(p.param("setup_ch1"), 1.0f);
+        TandemProcessor::set(p.param("setup_ch2"), 2.0f);
+        run(note(48, true, 2), 4);
+        const bool ch2 = sounding(1) > 0 && sounding(0) == 0;
+        run(note(48, false, 2), 100);
+        TandemProcessor::set(p.param("setup_ch1"), 0.0f);
+        TandemProcessor::set(p.param("setup_ch2"), 0.0f);
+        CHECK(ch2, "MIDI CH L2: a layer on its own channel takes that channel's notes, in any play mode");
+
+        // The arpeggiator, on layer 1 alone, at the panel's own tempo.
+        te->selectLampFor("play_mode", td::kPlaySingle);
+        te->pressControl("layer_1");
+        te->pressControl("arp_on");
+        TandemProcessor::set(p.param("perf_host"), 0.0f);
+        TandemProcessor::set(p.param("perf_tempo"), 120.0f);
+        juce::MidiBuffer chord;
+        for (int n : {60, 64, 67}) chord.addEvent(juce::MidiMessage::noteOn(1, n, 0.8f), 0);
+        p.processBlock(io, chord);
+        int starts = 0;
+        uint64_t last = 0;
+        for (int b = 0; b < int(sr / block); ++b) {     // a second
+            juce::MidiBuffer none;
+            p.processBlock(io, none);
+            uint64_t newest = 0;
+            for (int i = 0; i < td::Layer::kMaxVoices; ++i) newest = std::max(newest, p.engine().layer(0).voice(i).age);
+            if (newest != last) { ++starts; last = newest; }
+        }
+        std::printf("      the arpeggio: %d steps in a second at 120 BPM, 1/16\n", starts);
+        CHECK(p.value("arp_on") >= 0.5f && starts >= 7 && starts <= 9 && p.arpPlaying(0), "ARP ON: a held chord plays as an arpeggio, eight steps a second at 120 BPM");
+        juce::MidiBuffer upAll;
+        for (int n : {60, 64, 67}) upAll.addEvent(juce::MidiMessage::noteOff(1, n), 0);
+        run(upAll, 100);
+        te->pressControl("arp_on");
+
+        // TAP: taps half a second apart make 120 BPM, and take the clock from the host.
+        TandemProcessor::set(p.param("perf_host"), 1.0f);
+        te->tap(1000.0); te->tap(1500.0); te->tap(2000.0);
+        CHECK(std::abs(p.value("perf_tempo") - 120.0f) < 0.5f && p.value("perf_host") < 0.5f, "TAP: taps half a second apart set 120 BPM, and HOST goes off");
+
+        // The side chain: VCA ON/EXT opens with the input.
+        {
+            TandemProcessor q;
+            auto layout = q.getBusesLayout();
+            layout.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
+            const bool takes = q.setBusesLayout(layout);
+            q.setRateAndBufferSizeDetails(sr, block);
+            q.prepareToPlay(sr, block);
+            TandemProcessor::set(q.param("vca_src"), 2.0f);
+            TandemProcessor::set(q.param("perf_efrel"), 0.05f);
+            juce::AudioBuffer<float> buf(2, block);
+            juce::Random rnd(3);
+            double withIn = 0, without = 0;
+            juce::MidiBuffer on;
+            on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.9f), 0);
+            for (int b = 0; b < 110; ++b) {
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < block; ++i) buf.setSample(c, i, b < 30 ? 0.4f * (rnd.nextFloat() * 2 - 1) : 0.0f);
+                juce::MidiBuffer m;
+                if (b == 0) m = on;
+                q.processBlock(buf, m);
+                double s = 0;
+                for (int i = 0; i < block; ++i) s += double(buf.getSample(0, i)) * buf.getSample(0, i);
+                if (b > 10 && b < 30) withIn += s; else if (b >= 90) without += s;      // half a second after it stops
+            }
+            std::printf("      side chain: %.4f with the input, %.6f without\n", std::sqrt(withIn / (19.0 * block)), std::sqrt(without / (20.0 * block)));
+            CHECK(takes && q.sideChainConnected() && withIn > 1e-3 && without < withIn * 1e-3, "the side chain (EXT IN): with VCA ON/EXT, a held note sounds while the input does");
+        }
+
+        // A factory sound can set layer 2 ("2:key") and the play mode.
+        bool both = false;
+        for (int i = 0; i < tpre::kNumFactory; ++i) {
+            p.loadPreset(i);
+            if (juce::roundToInt(p.value("perf_mode")) != td::kPlaySingle) { both = true; break; }
+        }
+        CHECK(both, "factory sounds that use both layers");
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;

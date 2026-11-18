@@ -3,12 +3,16 @@
 #include "PluginEditor.h"
 
 TandemProcessor::TandemProcessor()
-    : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor(BusesProperties()
+                         .withInput("Side Chain", juce::AudioChannelSet::stereo(), false)     // the EXT IN: off until the host routes one in
+                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "params", tp::createLayout()) {
     for (int L = 0; L < tp::kLayersExposed; ++L) {
         reader_[L].attach(apvts, L);
         reader_[L].index();
     }
+    perfReader_.attach(apvts);
+    editLayerRaw_ = apvts.getRawParameterValue(tp::kEditLayerId);
     for (const auto& d : tp::layerDefs()) layerKeys_.push_back(d.key);
     volume_ = apvts.getParameter(tp::kVolumeId);
     volumeRaw_ = apvts.getRawParameterValue(tp::kVolumeId);
@@ -30,23 +34,37 @@ TandemProcessor::TandemProcessor()
 
 bool TandemProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     const auto out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
+    if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono()) return false;
+    const auto in = layouts.getMainInputChannelSet();
+    return in.isDisabled() || in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono();
 }
 
 void TandemProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
     sampleRate_ = sampleRate;
     engine_.prepare(sampleRate, samplesPerBlock);
+    engine_.setPerf(perfReader_.read());
     for (int L = 0; L < tp::kLayersExposed; ++L) engine_.layer(L).setParams(reader_[L].read());
     const size_t n = size_t(std::max(samplesPerBlock, 16));
     l_.assign(n, 0.0f);
     r_.assign(n, 0.0f);
+    scL_.assign(n, 0.0f);
+    scR_.assign(n, 0.0f);
     setLatencySamples(juce::roundToInt(engine_.latencySamples()));
 }
 
 juce::RangedAudioParameter* TandemProcessor::param(const juce::String& key, int layer) const {
+    if (key.length() > 2 && key[1] == ':' && (key[0] == '1' || key[0] == '2')) return param(key.substring(2), key[0] - '1');
     if (key == tp::kVolumeId) return volume_;
-    if (tp::isSetupId(key)) return apvts.getParameter(key);
-    return apvts.getParameter(tp::layerId(layer, key));
+    if (tp::isSetupId(key) || tp::isPerfId(key)) return apvts.getParameter(key);
+    return apvts.getParameter(tp::layerId(layer < 0 ? editLayer() : juce::jlimit(0, 1, layer), key));
+}
+
+void TandemProcessor::setEditLayer(int layer) {
+    if (auto* p = apvts.getParameter(tp::kEditLayerId)) {
+        p->beginChangeGesture();
+        set(p, float(juce::jlimit(0, 1, layer)));
+        p->endChangeGesture();
+    }
 }
 
 float TandemProcessor::value(const juce::String& key, int layer) const {
@@ -63,9 +81,22 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     const int n = buffer.getNumSamples();
     if (int(l_.size()) < n) { l_.resize(size_t(n)); r_.resize(size_t(n)); }
 
+    // The side chain (the EXT IN), before the output overwrites the channels it shares.
+    const bool side = getBusCount(true) > 0 && getBus(true, 0)->isEnabled() && getBus(true, 0)->getNumberOfChannels() > 0;
+    if (int(scL_.size()) < n) { scL_.resize(size_t(n)); scR_.resize(size_t(n)); }
+    if (side) {
+        auto in = getBusBuffer(buffer, true, 0);
+        std::copy(in.getReadPointer(0), in.getReadPointer(0) + n, scL_.begin());
+        std::copy(in.getReadPointer(in.getNumChannels() > 1 ? 1 : 0), in.getReadPointer(in.getNumChannels() > 1 ? 1 : 0) + n, scR_.begin());
+    }
+    sideOn_.store(side, std::memory_order_relaxed);
+    engine_.setExtConnected(side);
+
     // Settings, once a block. AGE scales every patch's drift (0.5 leaves it as made).
     auto rd = [](std::atomic<float>* a) { return a->load(std::memory_order_relaxed); };
     const float age = rd(setup_.age);
+    const td::PerfParams perf = perfReader_.read();
+    engine_.setPerf(perf);
     for (int L = 0; L < tp::kLayersExposed; ++L) {
         td::LayerParams p = reader_[L].read();
         p.drift = juce::jlimit(0.0f, 1.0f, p.drift * (0.25f + 1.5f * age) + std::max(0.0f, age - 0.75f) * 0.4f);
@@ -75,38 +106,54 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     engine_.setTune(rd(setup_.tune) / 100.0f);
     const int transpose = juce::roundToInt(rd(setup_.transpose));
     const int velCurve = juce::roundToInt(rd(setup_.velocity)), pressCurve = juce::roundToInt(rd(setup_.pressure));
-    const int ch1 = juce::roundToInt(rd(setup_.ch1));
+    const int ch1 = perf.chan[0], ch2 = perf.chan[1];
     const bool pedalInv = rd(setup_.pedal) >= 0.5f;
     if (pedalInv != lastPedalInv_) {          // turned round: read the pedal where it is now
         lastPedalInv_ = pedalInv;
         engine_.sustain((lastPedal_ >= 0.5f) != pedalInv);
     }
-    if (auto* ph = getPlayHead())
-        if (auto pos = ph->getPosition())
-            if (auto bpm = pos->getBpm()) engine_.setTempo(float(*bpm));
+    {   // the host's transport: its tempo, and its beat while it plays
+        bool playing = false;
+        double ppq = 0.0, bpm = 0.0;
+        if (auto* ph = getPlayHead())
+            if (auto pos = ph->getPosition()) {
+                if (auto b = pos->getBpm()) bpm = *b;
+                if (auto q = pos->getPpqPosition()) { ppq = *q; playing = pos->getIsPlaying(); }
+            }
+        engine_.setTransport(playing, ppq, bpm);
+    }
+    const bool learning = learning_.load(std::memory_order_relaxed);
 
     // Notes and controllers, each at its own sample.
     int done = 0;
     auto renderTo = [&](int upTo) {
-        if (upTo > done) { engine_.render(l_.data() + done, r_.data() + done, upTo - done); done = upTo; }
+        if (upTo > done) {
+            engine_.render(l_.data() + done, r_.data() + done, upTo - done, side ? scL_.data() + done : nullptr, side ? scR_.data() + done : nullptr);
+            done = upTo;
+        }
     };
     for (const auto meta : midi) {
         const auto msg = meta.getMessage();
         renderTo(juce::jlimit(0, n, meta.samplePosition));
-        if (ch1 > 0 && msg.getChannel() > 0 && msg.getChannel() != ch1) continue;     // layer 1 listens on one channel
+        const int ch = msg.getChannel();
+        // A channel neither layer listens on is ignored. (Notes: the engine gives each layer its own.)
+        if (ch > 0 && ch1 > 0 && ch2 > 0 && ch != ch1 && ch != ch2) continue;
         if (msg.isNoteOn()) {
             const int key = msg.getNoteNumber();
             const int note = juce::jlimit(0, 127, key + transpose);
             float v = msg.getFloatVelocity();
             if (velCurve == 0) v = std::pow(v, 0.6f);
             else if (velCurve == 2) v = std::pow(v, 1.7f);
-            if (noteMap_[key] >= 0) engine_.noteOff(noteMap_[key]);
-            noteMap_[key] = note;
-            engine_.noteOn(note, v);
+            const int slot = (ch > 0 ? (ch - 1) & 15 : 0) * 128 + key;
+            if (noteMap_[slot] >= 0) engine_.noteOff(noteMap_[slot], ch);
+            noteMap_[slot] = note;
+            if (learning) { learnNote_.store(note); learning_.store(false); }
+            engine_.noteOn(note, v, ch);
         } else if (msg.isNoteOff()) {
             const int key = msg.getNoteNumber();
-            engine_.noteOff(noteMap_[key] >= 0 ? noteMap_[key] : juce::jlimit(0, 127, key + transpose));
-            noteMap_[key] = -1;
+            const int slot = (ch > 0 ? (ch - 1) & 15 : 0) * 128 + key;
+            engine_.noteOff(noteMap_[slot] >= 0 ? noteMap_[slot] : juce::jlimit(0, 127, key + transpose), ch);
+            noteMap_[slot] = -1;
         } else if (msg.isPitchWheel()) engine_.bend(float(msg.getPitchWheelValue() - 8192) / 8192.0f);
         else if (msg.isChannelPressure()) {
             float v = float(msg.getChannelPressureValue()) / 127.0f;
@@ -133,15 +180,20 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     } else {
         for (int i = 0; i < n; ++i) outL[i] = 0.5f * (l_[size_t(i)] + r_[size_t(i)]);
     }
-    odrive_.store(engine_.layer(0).overdriven(), std::memory_order_relaxed);
-    sounding_.store(engine_.layer(0).soundingVoices(), std::memory_order_relaxed);
+    const int ed = juce::jlimit(0, 1, perf.layer);
+    odrive_.store(engine_.layer(ed).overdriven(), std::memory_order_relaxed);
+    sounding_.store(engine_.layer(0).soundingVoices() + engine_.layer(1).soundingVoices(), std::memory_order_relaxed);
+    beat_.store(engine_.beat(), std::memory_order_relaxed);
+    tempo_.store(engine_.tempo(), std::memory_order_relaxed);
+    follow_.store(engine_.follower(), std::memory_order_relaxed);
+    for (int L = 0; L < 2; ++L) arpRun_[size_t(L)].store(engine_.arp(L).running(), std::memory_order_relaxed);
     for (int L = 0; L < tp::kLayersExposed; ++L) {
         const auto& layer = engine_.layer(L);
         const int per = layer.binaural() ? 2 : 1;           // the stereo routing: a voice is two of the panel's
         vcount_[size_t(L)].store(std::min(kMeterVoices, layer.voiceCount() * per), std::memory_order_relaxed);
         for (int v = 0; v < kMeterVoices; ++v) meters_[size_t(L)][size_t(v)].store(layer.voiceMeter(v / per), std::memory_order_relaxed);
     }
-    for (int d = 0; d < td::kNumModDests; ++d) modNow_[size_t(d)].store(engine_.layer(0).modNow(d), std::memory_order_relaxed);
+    for (int d = 0; d < td::kNumModDests; ++d) modNow_[size_t(d)].store(engine_.layer(ed).modNow(d), std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +217,8 @@ void TandemProcessor::applySetting(const Setting& s) {
 bool TandemProcessor::presetEdited() const {
     const Setting now = currentSetting();
     for (size_t i = 0; i < now.size() && i < presetSnap_.size(); ++i)
-        if (isSoundParam(int(i)) && std::abs(now[i] - presetSnap_[i]) > 1e-4f * (1.0f + std::abs(now[i]))) return true;
+        if (isSoundParam(int(i)) && all_[i]->getParameterID() != tp::kEditLayerId     // looking at the other layer is not an edit
+            && std::abs(now[i] - presetSnap_[i]) > 1e-4f * (1.0f + std::abs(now[i]))) return true;
     return false;
 }
 
@@ -194,7 +247,7 @@ void TandemProcessor::loadPreset(int index) {
     if (list[size_t(index)].factory) {
         for (const auto& kv : tpre::kFactory[index].s) {
             if (kv.key == nullptr) break;
-            if (auto* v = slot(param(kv.key))) *v = kv.v;
+            if (auto* v = slot(param(kv.key, 0))) *v = kv.v;          // a plain key is layer 1's; "2:key" is layer 2's
             else jassertfalse;
         }
     } else {
@@ -331,7 +384,7 @@ void TandemProcessor::setStateInformation(const void* data, int sizeInBytes) {
         uiScale = float(state.getProperty("uiScale", 1.0f));
         menu = juce::jlimit(0, kMenus - 1, int(state.getProperty("menu", 2)));
         for (int i = 0; i < kMenus; ++i) page[i] = int(state.getProperty("page" + juce::String(i), 0));
-        bank = juce::jlimit(0, 7, int(state.getProperty("bank", 0)));
+        bank = juce::jlimit(0, 63, int(state.getProperty("bank", 0)));
         drawerOpen = bool(state.getProperty("drawer", false));
         presetName_ = state.getProperty("presetName", "init").toString();
         presetIndex_ = int(state.getProperty("presetIndex", 0));

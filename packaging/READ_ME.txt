@@ -14,12 +14,30 @@ Tandem: install
 
 Using it
 --------
-Tandem is a two-layer synthesizer. This build (stage 1) plays layer 1:
-two super oscillators, the dual filter, two LFOs, three envelopes, the
-voice modes and the effects. The layer keys, play mode, arpeggiator and
-layer 2's mixer are on the panel already; they say "stage 2" for now.
+Tandem is a two-layer synthesizer: two complete synths, each with two
+super oscillators, the dual filter, two LFOs, three envelopes, voice
+modes, an arpeggiator and its own effects.
 
-Top row: the sound. Bottom row: playing and programming.
+Top row: the sound of the layer you are editing. Bottom row: playing
+and programming.
+
+LAYER 1 / LAYER 2: which layer the panel edits (the display's title says
+L1 or L2). SHIFT + LAYER 1 swaps them; SHIFT + LAYER 2 copies the one you
+are editing onto the other.
+
+PLAY MODE: how the layers share the keys. SINGLE (the layer you edit),
+DUAL, SPLIT, ONE-TWO (first key layer 1, the rest layer 2), ROTATE,
+RANDOM, CHAOS (random, with fifths and octaves) and CASCADE (layer 1
+plays into layer 2's filter, at layer 2's EXT IN knob). SHIFT + PLAY
+MODE: ZONES; the next key you play sets the split.
+
+ARPEGGIATOR: ON, HOLD, MODE, RANGE for the layer you edit (each layer
+has its own); division, swing and gate on the ARP pages. HOST follows
+Logic's tempo and beat; turn TEMPO or TAP for Tandem's own clock.
+
+Side chain: pick a track in the Side Chain menu of Tandem's header.
+Layer 1's EXT IN knob feeds it into the filter; its envelope follower is
+a matrix source, and with the VCA on GATE it opens the VCA.
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
 default; a tag beside them shows the value as you turn. Keys with lamps:
@@ -50,12 +68,13 @@ lamps in LAYER MIX light as each voice plays.
 DICE and VARY: DICE rolls a pattern of small note-to-note differences;
 VARY sets how much you hear (none at 0, the odd octave past 7).
 
-Patches: eight keys, eight banks. Right-click a patch key (or click the
+Patches: eight keys, eight banks (G and H use both layers; SHIFT + a
+bank key again reaches your own patches). Right-click a patch key (or click the
 top line of the display) for the list. WRITE saves the sound as one of
 yours (its lamp blinks when the patch has changed). COMPARE flips
 between the patch as edited and as stored.
 
 SETUP opens the drawer: master tune, transpose, velocity and pressure
-response, MIDI channel, sustain pedal polarity, AGE and panel size.
+response, MIDI channel per layer, sustain pedal polarity, AGE and size.
 
 Hover over any control for a note on what it does.

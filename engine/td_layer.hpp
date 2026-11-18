@@ -9,6 +9,15 @@
 
 namespace td {
 
+// What comes into a layer from outside its voices, at the host's rate: audio for its filters (the
+// EXT IN, or layer 1's output in CASCADE) and the envelope follower.
+struct ExtIn {
+    const float* L = nullptr;
+    const float* R = nullptr;
+    const float* follow = nullptr;      // 0..1
+    bool vca = false;                   // an input is connected: VCA ON/EXT follows it
+};
+
 class Layer {
 public:
     static constexpr int kMaxVoices = 16;
@@ -35,6 +44,7 @@ public:
         }
         varyPos_ = rndPos_ = 0;
         idle_ = 1e9;
+        quiet_ = 1e9f;
         for (auto& m : modNow_) m = 0.0f;
         lfoSharedR_.rng = Rng(seed_ * 3u + 11u);
         heldCount_ = 0;
@@ -88,6 +98,7 @@ public:
     }
 
     void noteOn(int note, float vel) {
+        quiet_ = 0.0f;
         // After a second with no keys down, VARY's pattern and NOTE RND's cycle start again from the top.
         if (heldCount_ == 0 && idle_ >= host_) varyPos_ = rndPos_ = 0;
         idle_ = 0.0f;
@@ -142,14 +153,27 @@ public:
         }
     }
 
-    // Adds n host samples of this layer's output to outL/outR.
-    void render(float* outL, float* outR, int n) {
+    // Adds n host samples of this layer's output to outL/outR. A layer with nothing sounding and its
+    // effects' tails long gone sleeps, and costs nothing.
+    void render(float* outL, float* outR, int n, const ExtIn* ext = nullptr) {
+        if (asleep()) return;
         int done = 0;
         while (done < n) {
             const int m = std::min(kChunk, n - done);
-            renderChunk(outL + done, outR + done, m);
+            ExtIn e;
+            if (ext) {
+                e.vca = ext->vca;
+                if (ext->L) { e.L = ext->L + done; e.R = (ext->R ? ext->R : ext->L) + done; }
+                if (ext->follow) e.follow = ext->follow + done;
+            }
+            renderChunk(outL + done, outR + done, m, e);
             done += m;
         }
+    }
+    bool asleep() const {
+        if (quiet_ < 2.0f * host_ || p_.freeze) return false;
+        for (int i = 0; i < nVoices_; ++i) if (voices_[size_t(i)].active) return false;
+        return true;
     }
 
 private:
@@ -319,6 +343,7 @@ private:
         c.kRes = 4.3f * std::pow(clampf(p.resonance, 0.0f, 1.0f), 1.2f);
         c.g1 = 2.2f * p.osc1Level * p.osc1Level;
         c.g2 = 2.2f * p.osc2Level * p.osc2Level;
+        c.gExt = 2.2f * p.extLevel * p.extLevel;
 
         // Envelopes.
         c.e1T[0] = Env::holdTime(p.e1Hold); c.e1T[1] = Env::attackTime(p.e1A); c.e1T[2] = Env::decayTime(p.e1D); c.e1T[3] = p.e1S; c.e1T[4] = Env::decayTime(p.e1R);
@@ -344,7 +369,7 @@ private:
         c.bpm = bpm_;
     }
 
-    void renderChunk(float* outL, float* outR, int n) {
+    void renderChunk(float* outL0, float* outR0, int n, const ExtIn& ext) {
         configureLive();
         const int N = n * os_;
         float* bl = bufL_.data();
@@ -353,6 +378,36 @@ private:
         std::fill(br, br + N, 0.0f);
         ctx_.n = N;
         ctx_.odrive = false;
+        // This layer's output, before it joins the others (so the layer can tell when it has gone quiet).
+        float* outL = mixL_.data();
+        float* outR = mixR_.data();
+        std::fill(outL, outL + n, 0.0f);
+        std::fill(outR, outR + n, 0.0f);
+
+        // Audio from outside, up to the internal rate (linear between samples), and the follower.
+        ctx_.extL = ctx_.extR = nullptr;
+        if (ext.L && ctx_.gExt > 0.0f) {
+            float* xl = extL_.data();
+            float* xr = extR_.data();
+            for (int i = 0; i < n; ++i) {
+                const float l = ctx_.binaural ? ext.L[i] : 0.5f * (ext.L[i] + ext.R[i]), r = ext.R[i];
+                if (os_ == 2) {
+                    xl[2 * i] = 0.5f * (extPrevL_ + l); xl[2 * i + 1] = l;
+                    xr[2 * i] = 0.5f * (extPrevR_ + r); xr[2 * i + 1] = r;
+                } else { xl[i] = l; xr[i] = r; }
+                extPrevL_ = l; extPrevR_ = r;
+            }
+            ctx_.extL = xl;
+            ctx_.extR = ctx_.binaural ? xr : nullptr;
+        }
+        ctx_.follow = nullptr;
+        ctx_.extVca = ext.vca;
+        if (ext.follow) {
+            float* f = fol_.data();
+            for (int i = 0; i < N; ++i) f[i] = ext.follow[i / os_];
+            ctx_.follow = f;
+            ctx_.envFollow = ext.follow[n - 1];
+        } else ctx_.envFollow = 0.0f;
 
         // The shared LFO 1 (free running, low-frequency modes), one value per sample.
         if (ctx_.lfo1Shared) {
@@ -427,6 +482,15 @@ private:
         delay_.process(p_, bpm_, timeMod, sl, sr, dl, dr, n);
         for (int i = 0; i < n; ++i) { outL[i] += dl[i] * balD; outR[i] += dr[i] * balD; }
         reverb_.process(p_, sl, sr, outL, outR, n, balR);
+
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i) {
+            outL0[i] += outL[i];
+            outR0[i] += outR[i];
+            peak = std::max(peak, std::max(std::abs(outL[i]), std::abs(outR[i])));
+        }
+        if (peak > 1e-6f) quiet_ = 0.0f;
+        else quiet_ += float(n);
     }
 
     // Things that change while notes play (tempo for synced times).
@@ -444,6 +508,8 @@ private:
             hostL_.assign(need, 0.0f); hostR_.assign(need, 0.0f);
             sendL_.assign(need, 0.0f); sendR_.assign(need, 0.0f);
             tmpL_.assign(need, 0.0f); tmpR_.assign(need, 0.0f);
+            mixL_.assign(need, 0.0f); mixR_.assign(need, 0.0f);
+            extL_.assign(need, 0.0f); extR_.assign(need, 0.0f); fol_.assign(need, 0.0f);
         }
     }
     const Voice* newestVoice() const {
@@ -471,6 +537,8 @@ private:
     Rng rndRng_;
     int varyPos_ = 0, rndPos_ = 0;
     float idle_ = 1e9f;                      // host samples since the last key went up
+    float quiet_ = 1e9f;                     // host samples this layer has been silent
+    float extPrevL_ = 0.0f, extPrevR_ = 0.0f;
     std::array<float, kNumModDests> modNow_{};
     Decimator2 dec_[2];
     Drive drive_;
@@ -479,7 +547,7 @@ private:
     Delay delay_;
     Reverb reverb_;
     Smooth levelS_, panS_, sendS_;
-    std::vector<float> bufL_, bufR_, lfoL_, lfoR_, hostL_, hostR_, sendL_, sendR_, tmpL_, tmpR_;
+    std::vector<float> bufL_, bufR_, lfoL_, lfoR_, hostL_, hostR_, sendL_, sendR_, tmpL_, tmpR_, mixL_, mixR_, extL_, extR_, fol_;
 };
 
 }  // namespace td

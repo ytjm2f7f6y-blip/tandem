@@ -1,8 +1,9 @@
 // Tandem: the plugin's parameters, and how they become the engine's settings.
 //
-// Every parameter of a layer has the id "l<layer>_<key>"; stage 1 has layer 1 only. The
-// table below is the single list: the host sees these, presets store them, the window
-// and the display pages find them by key.
+// Every parameter of a layer has the id "l<layer>_<key>", for both layers. What belongs to the
+// whole instrument (the play mode, its zones, the clock, the follower) is "perf_<key>"; the
+// setup drawer's set-once settings are "setup_<key>". The tables below are the single list: the
+// host sees these, presets store them, the window and the display pages find them by key.
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -65,7 +66,7 @@ inline const juce::StringArray kResType{"Type 1", "Type 2"};
 inline const juce::StringArray kLfo1Waves{"Sine", "Sawtooth", "Sample & Hold", "Square", "Ramp", "Noise", "Triangle", "Noisy Sine", "User 1", "User 2", "HF", "HF Track"};
 inline const juce::StringArray kLfo1Modes{"Free", "Once", "Reset"};
 inline const juce::StringArray kEnvModes{"Normal", "Inverted", "Loop"};
-inline const juce::StringArray kVcaSrc{"ENV 2", "ENV 3", "On"};
+inline const juce::StringArray kVcaSrc{"ENV 2", "ENV 3", "On / Ext"};
 inline const juce::StringArray kVoiceModes{"Poly 1", "Solo", "Legato", "Unison", "Poly 2"};
 inline const juce::StringArray kUnison{"Level 1", "Level 2", "Octave", "Fifth", "Major"};
 inline const juce::StringArray kVoices{"2", "4", "8", "16"};
@@ -84,6 +85,18 @@ inline const juce::StringArray kDriveModes{"Off", "Harmonic", "Overdrive", "Fuzz
 inline const juce::StringArray kDelayDivs{"1/32", "1/32.", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.", "1/4T", "1/4", "1/4.", "1/2T", "1/2", "1/2.", "1/1T", "1/1"};
 inline const juce::StringArray kDelayModes{"Stereo", "Ping-Pong", "Mono"};
 inline const juce::StringArray kOnOff{"Off", "On"};
+inline const juce::StringArray kArpModes{"Up", "Down", "Up + Down", "Up & Down", "Random", "As Played", "Chord"};
+inline const juce::StringArray kArpRanges{"1 oct", "2 oct", "3 oct", "4 oct"};
+inline const juce::StringArray kArpDivs{"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T"};
+inline const juce::StringArray kArpSwing{"Off", "25 %", "50 %", "75 %", "100 %"};
+inline const juce::StringArray kPlayModes{"Single", "Dual", "Split", "One-Two", "Rotate", "Random", "Chaos", "Cascade"};
+inline const juce::StringArray kSixths{"Off", "1/6", "2/6", "3/6", "4/6", "5/6", "6/6"};
+inline juce::String noteName(int n) {
+    static const char* names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    n = juce::jlimit(0, 127, n);
+    return juce::String(names[n % 12]) + juce::String(n / 12 - 2);        // the convention Logic uses: 60 is C3
+}
+inline juce::String noteT(float v, int) { return noteName(juce::roundToInt(v)); }
 
 // ---- the table
 enum class Kind { Float, Choice, Bool };
@@ -223,6 +236,14 @@ inline std::vector<Def> layerDefs() {
     F("rv_lowcut", "Reverb Low Cut", 0, 1, 0.2f, [](float v, int) { return hz(20.0f * std::pow(40.0f, v)); });
     F("rv_predelay", "Reverb Pre-delay", 0, 1, 0.1f, [](float v, int) { return juce::String(juce::roundToInt(200.0f * v * v)) + " ms"; });
     F("rv_width", "Reverb Width", 0, 1, 0.8f, pct);
+    // arpeggiator
+    B("arp_on", "Arp", false);
+    B("arp_hold", "Arp Hold", false);
+    C("arp_mode", "Arp Mode", kArpModes, td::kArpUp);
+    C("arp_range", "Arp Range", kArpRanges, 0);
+    C("arp_div", "Arp Division", kArpDivs, 4);
+    C("arp_swing", "Arp Swing", kArpSwing, 0);
+    F("arp_gate", "Arp Gate", 0.05f, 1, 0.6f, pct);
     // mixer
     F("level", "Level", 0, 1, 0.75f);
     F("pan", "Pan", -1, 1, 0, panT);
@@ -233,26 +254,61 @@ inline std::vector<Def> layerDefs() {
 inline juce::String layerId(int layer, const juce::String& key) { return "l" + juce::String(layer + 1) + "_" + key; }
 inline const char* kVolumeId = "volume";
 inline bool isSetupId(const juce::String& id) { return id.startsWith("setup_"); }
-constexpr int kLayersExposed = 1;     // stage 1
+inline bool isPerfId(const juce::String& id) { return id.startsWith("perf_"); }
+constexpr int kLayersExposed = 2;
+inline const char* kEditLayerId = "perf_layer";
+
+// The whole instrument's settings: part of a sound (presets keep them), not of either layer.
+inline std::vector<Def> perfDefs() {
+    std::vector<Def> d;
+    auto F = [&](const char* k, const char* n, float lo, float hi, float def, juce::String (*fm)(float, int), float step = 0) {
+        d.push_back({k, n, Kind::Float, lo, hi, def, step, {}, fm});
+    };
+    auto C = [&](const char* k, const char* n, const juce::StringArray& ch, int def) { d.push_back({k, n, Kind::Choice, 0, float(ch.size() - 1), float(def), 1, ch, nullptr}); };
+    auto B = [&](const char* k, const char* n, bool def) { d.push_back({k, n, Kind::Bool, 0, 1, def ? 1.0f : 0.0f, 1, {}, nullptr}); };
+    C("perf_mode", "Play Mode", kPlayModes, td::kPlaySingle);
+    C("perf_layer", "Edit Layer", juce::StringArray{"Layer 1", "Layer 2"}, 0);
+    F("perf_split", "Split Point", 0, 127, 60, noteT, 1);
+    F("perf_lo1", "Layer 1 Lowest Key", 0, 127, 0, noteT, 1);
+    F("perf_hi1", "Layer 1 Highest Key", 0, 127, 127, noteT, 1);
+    F("perf_lo2", "Layer 2 Lowest Key", 0, 127, 0, noteT, 1);
+    F("perf_hi2", "Layer 2 Highest Key", 0, 127, 127, noteT, 1);
+    C("perf_5up", "Chaos Fifth Up", kSixths, 0);
+    C("perf_5dn", "Chaos Fifth Down", kSixths, 0);
+    C("perf_8up", "Chaos Octave Up", kSixths, 0);
+    C("perf_8dn", "Chaos Octave Down", kSixths, 0);
+    C("perf_odds", "Random Layer 1 Odds", kSixths, 3);
+    F("perf_tempo", "Tempo", 40, 240, 120, [](float v, int) { return juce::String(v, v < 100 ? 1 : 0) + " BPM"; });
+    B("perf_host", "Host Tempo", true);
+    F("perf_efatk", "Follower Attack", 0.001f, 1.0f, 0.05f, [](float v, int) { return secs(v); });
+    F("perf_efrel", "Follower Release", 0.01f, 3.0f, 0.24f, [](float v, int) { return secs(v); });
+    F("perf_efthr", "Follower Threshold", 0, 1, 0, pct);
+    F("perf_efgain", "Follower Gain", -12, 24, 0, db);
+    return d;
+}
 
 inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout() {
     using namespace juce;
     AudioProcessorValueTreeState::ParameterLayout layout;
     const auto defs = layerDefs();
+    auto add = [&](const String& idText, const String& name, const Def& d, bool automatable) {
+        const ParameterID id{idText, 1};
+        if (d.kind == Kind::Choice) layout.add(std::make_unique<AudioParameterChoice>(id, name, d.choices, int(d.def), AudioParameterChoiceAttributes().withAutomatable(automatable)));
+        else if (d.kind == Kind::Bool) layout.add(std::make_unique<AudioParameterBool>(id, name, d.def >= 0.5f, AudioParameterBoolAttributes().withAutomatable(automatable)));
+        else {
+            auto a = AudioParameterFloatAttributes().withAutomatable(automatable);
+            if (d.fmt) a = a.withStringFromValueFunction(d.fmt);
+            NormalisableRange<float> r(d.lo, d.hi, d.step);
+            if (d.key == "perf_efatk") r.setSkewForCentre(0.03f);
+            if (d.key == "perf_efrel") r.setSkewForCentre(0.25f);
+            layout.add(std::make_unique<AudioParameterFloat>(id, name, r, d.def, a));
+        }
+    };
     for (int L = 0; L < kLayersExposed; ++L) {
         const String pre = kLayersExposed > 1 ? "L" + String(L + 1) + " " : String();
-        for (const auto& d : defs) {
-            const ParameterID id{layerId(L, d.key), 1};
-            if (d.kind == Kind::Choice) layout.add(std::make_unique<AudioParameterChoice>(id, pre + d.name, d.choices, int(d.def)));
-            else if (d.kind == Kind::Bool) layout.add(std::make_unique<AudioParameterBool>(id, pre + d.name, d.def >= 0.5f));
-            else {
-                auto a = AudioParameterFloatAttributes();
-                if (d.fmt) a = a.withStringFromValueFunction(d.fmt);
-                NormalisableRange<float> r(d.lo, d.hi, d.step);
-                layout.add(std::make_unique<AudioParameterFloat>(id, pre + d.name, r, d.def, a));
-            }
-        }
+        for (const auto& d : defs) add(layerId(L, d.key), pre + d.name, d, true);
     }
+    for (const auto& d : perfDefs()) add(d.key, d.name, d, d.key != kEditLayerId);
     auto a = AudioParameterFloatAttributes().withStringFromValueFunction(ten);
     layout.add(std::make_unique<AudioParameterFloat>(ParameterID{kVolumeId, 1}, "Volume", NormalisableRange<float>(0, 1), 0.8f, a));
 
@@ -289,7 +345,8 @@ struct LayerReader {
                 e1h, e1a, e1d, e1s, e1r, e1m, e2a, e2d, e2s, e2r, vca, e3m, e3h, e3a, e3d, e3s, e3r, velVca, velVcf,
                 vmode, uni, voices, drift, spread, glide, bendR, bendV, l2w, l2t, l2r, l2d, l2rm, l2p, l2v, l2a,
                 mS[td::kMatrixSlots], mD[td::kMatrixSlots], mA[td::kMatrixSlots], mV[td::kMatrixSlots], mC[td::kMatrixSlots], rndCount, vary, varySeed,
-                drvM, drvT, drvA, drvX, chOn, chR, chD, chDl, chX, eqL, eqM, eqH, eqQ, dT, dM, dF, dD, bal, frz, rS, rD, rL, rP, rW, level, pan, send; } ix{};
+                drvM, drvT, drvA, drvX, chOn, chR, chD, chDl, chX, eqL, eqM, eqH, eqQ, dT, dM, dF, dD, bal, frz, rS, rD, rL, rP, rW, level, pan, send,
+                arpOn, arpHold, arpMode, arpRange, arpDiv, arpSwing, arpGate; } ix{};
     void index() {
         auto I = [&](const char* k) { return idx(k); };
         ix.osc1Wave = I("osc1_wave"); ix.osc2Wave = I("osc2_wave"); ix.t1 = I("osc1_tune"); ix.f1 = I("osc1_fine"); ix.t2 = I("osc2_tune"); ix.f2 = I("osc2_fine");
@@ -322,6 +379,8 @@ struct LayerReader {
         ix.dT = I("dly_time"); ix.dM = I("dly_mode"); ix.dF = I("dly_fb"); ix.dD = I("dly_damp"); ix.bal = I("fx_balance"); ix.frz = I("freeze");
         ix.rS = I("rv_size"); ix.rD = I("rv_damp"); ix.rL = I("rv_lowcut"); ix.rP = I("rv_predelay"); ix.rW = I("rv_width");
         ix.level = I("level"); ix.pan = I("pan"); ix.send = I("fx_send");
+        ix.arpOn = I("arp_on"); ix.arpHold = I("arp_hold"); ix.arpMode = I("arp_mode"); ix.arpRange = I("arp_range");
+        ix.arpDiv = I("arp_div"); ix.arpSwing = I("arp_swing"); ix.arpGate = I("arp_gate");
     }
 
     td::LayerParams read() const {
@@ -357,6 +416,34 @@ struct LayerReader {
         p.dlyDiv = n(ix.dT); p.dlyMode = n(ix.dM); p.dlyFb = v(ix.dF); p.dlyDamp = v(ix.dD); p.fxBal = v(ix.bal); p.freeze = v(ix.frz) >= 0.5f;
         p.rvSize = v(ix.rS); p.rvDamp = v(ix.rD); p.rvLowCut = v(ix.rL); p.rvPreDly = v(ix.rP); p.rvWidth = v(ix.rW);
         p.level = v(ix.level); p.pan = v(ix.pan); p.fxSend = v(ix.send);
+        p.arpOn = v(ix.arpOn) >= 0.5f; p.arpHold = v(ix.arpHold) >= 0.5f; p.arpMode = n(ix.arpMode); p.arpRange = n(ix.arpRange) + 1;
+        p.arpDiv = n(ix.arpDiv); p.arpSwing = float(n(ix.arpSwing)) * 0.25f; p.arpGate = v(ix.arpGate);
+        return p;
+    }
+};
+
+// Reads the whole instrument's settings (and the MIDI channels from the drawer).
+struct PerfReader {
+    std::atomic<float>* mode = nullptr, *layer = nullptr, *split = nullptr, *lo[2] = {}, *hi[2] = {}, *f5u = nullptr, *f5d = nullptr, *o8u = nullptr,
+                      *o8d = nullptr, *odds = nullptr, *tempo = nullptr, *host = nullptr, *atk = nullptr, *rel = nullptr, *thr = nullptr, *gain = nullptr,
+                      *ch[2] = {};
+    void attach(juce::AudioProcessorValueTreeState& s) {
+        auto r = [&](const char* id) { auto* a = s.getRawParameterValue(id); jassert(a != nullptr); return a; };
+        mode = r("perf_mode"); layer = r("perf_layer"); split = r("perf_split");
+        lo[0] = r("perf_lo1"); hi[0] = r("perf_hi1"); lo[1] = r("perf_lo2"); hi[1] = r("perf_hi2");
+        f5u = r("perf_5up"); f5d = r("perf_5dn"); o8u = r("perf_8up"); o8d = r("perf_8dn"); odds = r("perf_odds");
+        tempo = r("perf_tempo"); host = r("perf_host"); atk = r("perf_efatk"); rel = r("perf_efrel"); thr = r("perf_efthr"); gain = r("perf_efgain");
+        ch[0] = r("setup_ch1"); ch[1] = r("setup_ch2");
+    }
+    td::PerfParams read() const {
+        auto v = [](std::atomic<float>* a) { return a->load(std::memory_order_relaxed); };
+        auto n = [&](std::atomic<float>* a) { return juce::roundToInt(v(a)); };
+        td::PerfParams p;
+        p.playMode = n(mode); p.layer = n(layer); p.split = n(split);
+        for (int i = 0; i < 2; ++i) { p.lo[i] = std::min(n(lo[i]), n(hi[i])); p.hi[i] = std::max(n(lo[i]), n(hi[i])); p.chan[i] = n(ch[i]); }
+        p.fifthUp = n(f5u); p.fifthDown = n(f5d); p.octUp = n(o8u); p.octDown = n(o8d); p.layerOdds = n(odds);
+        p.tempo = v(tempo); p.hostSync = v(host) >= 0.5f;
+        p.efAttack = v(atk); p.efRelease = v(rel); p.efThresh = v(thr); p.efGain = juce::Decibels::decibelsToGain(v(gain));
         return p;
     }
 };

@@ -239,6 +239,13 @@ struct BlockCtx {
     float bendSemis = 0.0f, bendVcfOct = 0.0f;
     float modWheel = 0.0f, aftertouch = 0.0f, expression = 0.0f, envFollow = 0.0f;
     float glideRate = 0.0f;             // semitones per second (0: off)
+    // Audio from outside the voice into its filter (internal rate, this block): the EXT IN on layer 1, layer 1's
+    // output on layer 2 in CASCADE. Out of the binaural routing extL carries both channels' sum.
+    const float* extL = nullptr;
+    const float* extR = nullptr;
+    float gExt = 0.0f;
+    const float* follow = nullptr;      // the envelope follower, per sample (internal rate), 0..1
+    bool extVca = false;                // VCA ON/EXT with an input connected: the follower opens the VCA
     float driftAmt = 0.0f;
     float bpm = 120.0f;
     bool odrive = false;                // set by voices when the mixer is driven into the filter
@@ -421,6 +428,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
         const float env1 = e1.tick(invFs);
         const float env2 = e2.tick(invFs);
         const float env3 = e3.tick(invFs);
+        const float fol = c.follow ? c.follow[i] : c.envFollow;
 
         // LFO 1 (fades in over its delay)
         lfo1Time += invFs;
@@ -481,7 +489,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
                     case kMsVelocity: return vel;
                     case kMsAftertouch: return c.aftertouch;
                     case kMsExpression: return c.expression;
-                    case kMsEnvFollower: return c.envFollow;
+                    case kMsEnvFollower: return fol;
                     case kMsNote: return noteK;
                     case kMsModWheel: return c.modWheel;
                     case kMsNoteRnd: return noteRnd;
@@ -514,7 +522,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
         const float env1Out = (p.e1Mode == 1 ? -env1 : env1) * clampf(1.0f + modOut[kMdEnv1Depth], 0.0f, 2.0f);
         const float basePitch = float(pitch) + uniSemis + 12.0f * float(p.octave) + c.bendSemis + semisDrift + c.driftAmt * 0.03f * wander
                                 + lfo2 * l2PitchSemis + 12.0f * modOut[kMdPitch];
-        const float vcaBase = (p.vcaSrc == 0 ? env2 : (p.vcaSrc == 1 ? (p.e3Mode == 1 ? std::max(0.0f, 1.0f - env3) : env3) : 1.0f));
+        const float vcaBase = (p.vcaSrc == 0 ? env2 : (p.vcaSrc == 1 ? (p.e3Mode == 1 ? std::max(0.0f, 1.0f - env3) : env3) : (c.extVca ? fol : 1.0f)));
         float vca = vcaBase * velVca * clampf(1.0f + modOut[kMdVcaLevel], 0.0f, 2.0f);
         if (l2Vca > 0.0f) {
             const bool uni = p.lfo2Wave == kL2Saw || p.lfo2Wave == kL2Square || p.lfo2Wave == kL2Ramp;
@@ -695,7 +703,8 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
             // ---- mixer, driven into the filter
             const float g1 = c.g1 * clampf(1.0f + modOut[kMdOsc1Mix], 0.0f, 2.0f);
             const float g2 = c.g2 * clampf(1.0f + modOut[kMdOsc2Mix], 0.0f, 2.0f);
-            const float mixIn = out[0] * g1 + out[1] * g2;
+            float mixIn = out[0] * g1 + out[1] * g2;
+            if (c.extL) mixIn += c.gExt * (e == 1 && c.extR ? c.extR[i] : c.extL[i]);
             if (std::abs(mixIn) > 1.0f) c.odrive = true;
             const float x = kneeSat(mixIn, 0.8f, 1.4f) + 1e-5f * E.rng.bi();     // a breath of noise, as in any analog circuit
 

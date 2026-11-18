@@ -9,6 +9,11 @@
 
 using namespace td;
 
+static const char* tp_modeName(int m) {
+    static const char* n[] = {"UP", "DOWN", "UP+DOWN", "UP&DOWN", "RANDOM", "AS PLAYED", "CHORD"};
+    return n[std::clamp(m, 0, 6)];
+}
+
 static int failures = 0;
 static void check(bool ok, const std::string& what) {
     std::printf("  %s  %s\n", ok ? "ok  " : "FAIL", what.c_str());
@@ -529,6 +534,366 @@ static void testVary() {
     check(stuck == 0, fmt("30 rolls, 16 notes each, all let go: %.0f voices left sounding", stuck));
 }
 
+
+// ---------------------------------------------------------------------------------------
+// Stage 2: the play modes, the arpeggiators, the external input.
+
+// Which layers a note went to: bit 0 layer 1, bit 1 layer 2 (by their gated voices).
+static int gatedMask(Engine& e) {
+    int m = 0;
+    for (int L = 0; L < 2; ++L)
+        for (int i = 0; i < Layer::kMaxVoices; ++i)
+            if (e.layer(L).voice(i).active && e.layer(L).voice(i).gate) { m |= 1 << L; break; }
+    return m;
+}
+static int gatedCount(Engine& e, int L) {
+    int n = 0;
+    for (int i = 0; i < Layer::kMaxVoices; ++i) n += e.layer(L).voice(i).active && e.layer(L).voice(i).gate;
+    return n;
+}
+static void twoPlain(Engine& e) {
+    LayerParams p = plain();
+    p.voices = 8;
+    p.e2R = 0.0f;
+    e.layer(0).setParams(p);
+    e.layer(1).setParams(p);
+}
+
+static void testPlayModes() {
+    std::printf("play modes\n");
+    std::vector<float> L(256), R(256);
+    auto fresh = [&](Engine& e, int mode) {
+        e.prepare(48000, 256);
+        twoPlain(e);
+        PerfParams pp; pp.playMode = mode;
+        e.setPerf(pp);
+    };
+    auto tick = [&](Engine& e, int blocks = 1) { for (int i = 0; i < blocks; ++i) e.render(L.data(), R.data(), 256); };
+    {   // SINGLE: the edited layer alone; a key goes up on the layer it went down on
+        Engine e; fresh(e, kPlaySingle);
+        e.noteOn(60, 1); tick(e);
+        const int a = gatedMask(e);
+        PerfParams pp = e.perf(); pp.layer = 1; e.setPerf(pp);
+        e.noteOn(64, 1); tick(e);
+        const int b = gatedCount(e, 1);
+        e.noteOff(60); tick(e, 4);
+        check(a == 1 && b == 1 && gatedCount(e, 0) == 0 && gatedCount(e, 1) == 1,
+              "SINGLE: the edited layer plays; a key let go after switching layers still lets its own note go");
+    }
+    {   // DUAL
+        Engine e; fresh(e, kPlayDual);
+        e.noteOn(60, 1); tick(e);
+        check(gatedCount(e, 0) == 1 && gatedCount(e, 1) == 1, "DUAL: every note on both layers");
+    }
+    {   // SPLIT
+        Engine e; fresh(e, kPlaySplit);
+        PerfParams pp = e.perf(); pp.split = 60; e.setPerf(pp);
+        e.noteOn(59, 1); tick(e);
+        const int lo = gatedMask(e);
+        e.noteOff(59); tick(e, 4);
+        e.noteOn(60, 1); tick(e);
+        check(lo == 2 && gatedMask(e) == 1, "SPLIT at C3: B2 on layer 2, C3 on layer 1");
+    }
+    {   // ONE-TWO
+        Engine e; fresh(e, kPlayOneTwo);
+        e.noteOn(48, 1); tick(e);
+        e.noteOn(64, 1); e.noteOn(67, 1); tick(e);
+        const bool first = gatedCount(e, 0) == 1 && gatedCount(e, 1) == 2;
+        e.noteOff(48); e.noteOff(64); e.noteOff(67); tick(e, 4);
+        e.noteOn(50, 1); tick(e);
+        check(first && gatedCount(e, 0) == 1 && gatedCount(e, 1) == 0, "ONE-TWO: the first key on layer 1, the keys played with it on layer 2");
+    }
+    {   // ROTATE
+        Engine e; fresh(e, kPlayRotate);
+        int pattern = 0;
+        for (int k = 0; k < 4; ++k) {
+            e.noteOn(60 + k, 1); tick(e);
+            pattern = pattern * 10 + gatedMask(e);
+            e.noteOff(60 + k); tick(e, 4);
+        }
+        check(pattern == 1212, fmt("ROTATE: layers in turn (%.0f)", pattern));
+    }
+    {   // RANDOM: the odds
+        int n1[3] = {0, 0, 0};
+        const int odds[3] = {6, 0, 3};
+        for (int t = 0; t < 3; ++t) {
+            Engine e; fresh(e, kPlayRandom);
+            PerfParams pp = e.perf(); pp.layerOdds = odds[t]; e.setPerf(pp);
+            for (int k = 0; k < 200; ++k) {
+                e.noteOn(60, 1); tick(e);
+                n1[t] += gatedMask(e) == 1;
+                e.noteOff(60); tick(e, 2);
+            }
+        }
+        check(n1[0] == 200 && n1[1] == 0 && n1[2] > 70 && n1[2] < 130,
+              fmt("RANDOM: layer 1 at 6/6, 0/6 and 3/6 of the time: %.0f, %.0f, %.0f of 200", n1[0], n1[1], n1[2]));
+    }
+    {   // CHAOS: the intervals
+        Engine e; fresh(e, kPlayChaos);
+        PerfParams pp = e.perf(); pp.fifthUp = 6; pp.octUp = 6; pp.layerOdds = 6; e.setPerf(pp);
+        e.noteOn(48, 1); tick(e);
+        int played = -1;
+        for (int i = 0; i < Layer::kMaxVoices; ++i) if (e.layer(0).voice(i).gate) played = e.layer(0).voice(i).note;
+        e.noteOff(48); tick(e, 4);
+        pp.fifthUp = 0; pp.fifthDown = 3; pp.octUp = 0; pp.octDown = 0; e.setPerf(pp);
+        int down = 0, same = 0;
+        for (int k = 0; k < 120; ++k) {
+            e.noteOn(60, 1); tick(e);
+            for (int i = 0; i < Layer::kMaxVoices; ++i) if (e.layer(0).voice(i).gate) { down += e.layer(0).voice(i).note == 53; same += e.layer(0).voice(i).note == 60; }
+            e.noteOff(60); tick(e, 2);
+        }
+        check(played == 48 + 19 && gatedCount(e, 0) == 0 && down > 35 && down < 85 && down + same == 120,
+              fmt("CHAOS: a fifth and an octave up at 6/6 (played %.0f); a fifth down half the time at 3/6 (%.0f of 120), and every key let go", played, down));
+    }
+    {   // CASCADE: layer 1 heard only through layer 2's filter, at layer 2's EXT level
+        auto loud = [&](float ext) {
+            Engine e; e.prepare(48000, 256);
+            LayerParams a = plain(); a.voices = 4;
+            LayerParams b = plain(); b.voices = 4; b.osc1Level = 0.0f; b.osc2Level = 0.0f; b.extLevel = ext;
+            e.layer(0).setParams(a); e.layer(1).setParams(b);
+            PerfParams pp; pp.playMode = kPlayCascade; e.setPerf(pp);
+            e.noteOn(57, 1);
+            double sum = 0;
+            for (int i = 0; i < 40; ++i) { e.render(L.data(), R.data(), 256); for (float x : L) sum += double(x) * x; }
+            return std::sqrt(sum / (40 * 256));
+        };
+        const double off = loud(0.0f), on = loud(0.6f);
+        check(off < 1e-5 && on > 0.02, fmt("CASCADE: layer 2's EXT at 0: silence (%.6f); at 6: layer 1 through it (%.3f)", off, on));
+    }
+    {   // key ranges, and MIDI channels
+        Engine e; fresh(e, kPlayDual);
+        PerfParams pp = e.perf(); pp.lo[0] = 60; pp.hi[1] = 59; e.setPerf(pp);
+        e.noteOn(40, 1); tick(e);
+        const int a = gatedMask(e);
+        e.noteOff(40); tick(e, 4);
+        pp = PerfParams{}; pp.playMode = kPlayDual; pp.chan[0] = 1; pp.chan[1] = 2; e.setPerf(pp);
+        e.noteOn(60, 1, 2); tick(e);
+        const int b = gatedMask(e);
+        e.noteOn(60, 1, 1); tick(e);
+        e.noteOff(60, 2); tick(e, 4);
+        check(a == 2 && b == 2 && gatedMask(e) == 1, "key ranges keep notes to their layer; each layer hears its own MIDI channel, the same key on both");
+    }
+    {   // an unused layer sleeps
+        Engine e; e.prepare(48000, 256);
+        twoPlain(e);
+        tick(e);
+        const bool before = e.layer(1).asleep();
+        e.noteOn(60, 1); tick(e);
+        e.noteOff(60);
+        for (int i = 0; i < 600; ++i) tick(e);         // 3.2 s
+        check(before && e.layer(1).asleep() && e.layer(0).asleep(), "a layer with nothing to play sleeps (layer 2 in SINGLE; layer 1 after its tail)");
+    }
+}
+
+// The arpeggiator: what it plays, and when. Reads the newest voice every 32 samples.
+struct ArpRun {
+    std::vector<int> notes;     // every note started, in order (chord steps: several at one time)
+    std::vector<int> at;        // the sample each started at
+    std::vector<int> ends;      // when each was let go (or -1)
+};
+static ArpRun watchArp(Engine& e, int layer, int samples, const std::function<void(Engine&, int)>& atSample = nullptr) {
+    ArpRun r;
+    std::vector<float> L(32), R(32);
+    uint64_t lastAge[Layer::kMaxVoices] = {};
+    bool wasGate[Layer::kMaxVoices] = {};
+    int idx[Layer::kMaxVoices];
+    for (int& i : idx) i = -1;
+    for (int t = 0; t < samples; t += 32) {
+        if (atSample) atSample(e, t);
+        e.render(L.data(), R.data(), 32);
+        for (int i = 0; i < Layer::kMaxVoices; ++i) {
+            const Voice& v = e.layer(layer).voice(i);
+            if (v.active && v.gate && v.age != lastAge[i]) {
+                lastAge[i] = v.age;
+                r.notes.push_back(v.note); r.at.push_back(t); r.ends.push_back(-1);
+                idx[i] = int(r.notes.size()) - 1;
+            }
+            if (wasGate[i] && !v.gate && idx[i] >= 0 && r.ends[size_t(idx[i])] < 0) r.ends[size_t(idx[i])] = t;
+            wasGate[i] = v.active && v.gate;
+        }
+    }
+    return r;
+}
+static std::string seq(const ArpRun& r, size_t n = 12) {
+    std::string s;
+    for (size_t i = 0; i < r.notes.size() && i < n; ++i) s += (i ? " " : "") + std::to_string(r.notes[i]);
+    return s;
+}
+
+static void testArp() {
+    std::printf("arpeggiator\n");
+    // 120 BPM, 1/16: a step every 6000 samples at 48 kHz.
+    auto setup = [](Engine& e, int mode, int range = 1, float gate = 0.5f, float swing = 0.0f, bool hold = false) {
+        e.prepare(48000, 256);
+        LayerParams p = plain(); p.voices = 8; p.e2R = 0.0f;
+        p.arpOn = true; p.arpMode = mode; p.arpRange = range; p.arpDiv = 4; p.arpGate = gate; p.arpSwing = swing; p.arpHold = hold;
+        e.layer(0).setParams(p);
+        PerfParams pp; pp.hostSync = false; pp.tempo = 120.0f;
+        e.setPerf(pp);
+        e.setTempo(120.0f);
+    };
+    auto chord = [](Engine& e) { e.noteOn(64, 0.8f); e.noteOn(60, 0.8f); e.noteOn(67, 0.8f); };
+    {
+        Engine e; setup(e, kArpUp);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 48000);
+        bool timed = r.at.size() >= 8;
+        for (size_t i = 0; i < r.at.size() && i < 8; ++i) timed = timed && std::abs(r.at[i] - int(i) * 6000) <= 32;
+        bool gated = !r.ends.empty();
+        for (size_t i = 0; i + 1 < r.ends.size(); ++i) gated = gated && std::abs(r.ends[i] - r.at[i] - 3000) <= 64;
+        check(seq(r, 8) == "60 64 67 60 64 67 60 64" && timed && gated,
+              "UP at 1/16, 120 BPM: " + seq(r, 8) + ", a step every 6000 samples, each held half a step");
+    }
+    const struct { int mode, range; const char* want; } orders[] = {
+        {kArpDown, 1, "67 64 60 67 64 60"}, {kArpUpDown, 1, "60 64 67 64 60 64"}, {kArpUpDown2, 1, "60 64 67 67 64 60"},
+        {kArpOrder, 1, "64 60 67 64 60 67"}, {kArpUp, 2, "60 64 67 72 76 79"}};
+    for (const auto& o : orders) {
+        Engine e; setup(e, o.mode, o.range);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 36000);
+        check(seq(r, 6) == o.want, std::string("mode ") + tp_modeName(o.mode) + (o.range > 1 ? ", 2 octaves" : "") + ": " + seq(r, 6));
+    }
+    {
+        Engine e; setup(e, kArpChord, 2);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 13000);
+        check(seq(r, 9) == "60 64 67 72 76 79 60 64 67" || (r.notes.size() >= 6 && r.at[0] == r.at[2] && r.at[3] == r.at[5] && r.at[3] - r.at[0] >= 5900),
+              "CHORD, 2 octaves: the chord a step, an octave up the next: " + seq(r, 9));
+    }
+    {
+        Engine e; setup(e, kArpRandom);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 48000 * 4);
+        int repeats = 0, counts[3] = {0, 0, 0};
+        for (size_t i = 0; i < r.notes.size(); ++i) {
+            if (i && r.notes[i] == r.notes[i - 1]) ++repeats;
+            counts[r.notes[i] == 60 ? 0 : (r.notes[i] == 64 ? 1 : 2)]++;
+        }
+        check(repeats == 0 && counts[0] > 5 && counts[1] > 5 && counts[2] > 5,
+              fmt("RANDOM: never the same note twice running; each note %.0f, %.0f, %.0f times", counts[0], counts[1], counts[2]) + fmt(" of %.0f", double(r.notes.size())));
+    }
+    {   // swing: the off steps late by a third of a step at full swing
+        Engine e; setup(e, kArpUp, 1, 0.3f, 1.0f);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 30000);
+        check(r.at.size() >= 4 && std::abs(r.at[1] - 8000) <= 32 && std::abs(r.at[2] - 12000) <= 32 && std::abs(r.at[3] - 20000) <= 32,
+              fmt("full swing: steps at 0, %.0f, %.0f, %.0f samples (8000, 12000, 20000)", r.at.size() > 1 ? r.at[1] : -1, r.at.size() > 2 ? r.at[2] : -1, r.at.size() > 3 ? r.at[3] : -1));
+    }
+    {   // without HOLD the arpeggio stops when the keys come up; with it, it plays on until the next chord
+        Engine e; setup(e, kArpUp);
+        chord(e);
+        const ArpRun r = watchArp(e, 0, 30000, [](Engine& en, int t) { if (t == 13000 - 13000 % 32) { en.noteOff(60); en.noteOff(64); en.noteOff(67); } });
+        Engine h; setup(h, kArpUp, 1, 0.5f, 0.0f, true);
+        chord(h);
+        const ArpRun rh = watchArp(h, 0, 48000, [](Engine& en, int t) {
+            if (t == 13000 - 13000 % 32) { en.noteOff(60); en.noteOff(64); en.noteOff(67); }
+            if (t == 30016) { en.noteOn(50, 0.8f); }
+        });
+        int after = 0;
+        for (size_t i = 0; i < rh.notes.size(); ++i) if (rh.at[i] > 30016) after += rh.notes[i] == 50 ? 1 : 100;
+        check(r.notes.size() == 3 && rh.notes.size() >= 7 && after >= 2 && after < 100 && gatedCount(e, 0) == 0,
+              fmt("keys up: the arpeggio stops (%.0f notes); with HOLD it plays on, then a new key replaces the chord (%.0f notes)", double(r.notes.size()), double(rh.notes.size())));
+    }
+    {   // on the host's grid: a key a little late waits for the next step; a loop back does not stall it
+        Engine e; setup(e, kArpUp);
+        PerfParams pp = e.perf(); pp.hostSync = true; e.setPerf(pp);
+        double ppq = 10.1;
+        const ArpRun r = watchArp(e, 0, 48000, [&](Engine& en, int t) {
+            if (t == 0) { en.setTransport(true, ppq, 120.0); chord(en); }
+            else if (t % 256 == 0) {
+                ppq += 256.0 / 24000.0;
+                if (t == 24064) ppq = 2.0;                  // the host loops back
+                en.setTransport(true, ppq, 120.0);
+            }
+        });
+        // 10.1 beats: 0.1 past a step (40 % of one), so the first waits for 10.25 = 0.15 beat = 3600 samples.
+        bool afterLoop = false;
+        for (size_t i = 0; i < r.at.size(); ++i) afterLoop = afterLoop || (r.at[i] > 24064 && r.at[i] < 24064 + 6100);
+        check(!r.at.empty() && std::abs(r.at[0] - 3600) <= 32 && afterLoop,
+              fmt("on the host's beat: the first step waits for the grid (%.0f samples, 3600); after a loop back the next comes within a step", r.at.empty() ? -1 : r.at[0]));
+    }
+    {   // the arpeggiator going off with keys down: they sound as played; HOLD alone keeps notes after the keys come up
+        Engine e; setup(e, kArpUp);
+        chord(e);
+        std::vector<float> L(256), R(256);
+        for (int i = 0; i < 10; ++i) e.render(L.data(), R.data(), 256);
+        LayerParams p = e.layer(0).params(); p.arpOn = false; e.layer(0).setParams(p);
+        for (int i = 0; i < 4; ++i) e.render(L.data(), R.data(), 256);
+        const int held = gatedCount(e, 0);
+        p.arpHold = true; e.layer(0).setParams(p);
+        e.render(L.data(), R.data(), 256);
+        e.noteOff(60); e.noteOff(64); e.noteOff(67);
+        for (int i = 0; i < 4; ++i) e.render(L.data(), R.data(), 256);
+        const int kept = gatedCount(e, 0);
+        e.noteOn(72, 0.8f);
+        for (int i = 0; i < 4; ++i) e.render(L.data(), R.data(), 256);
+        const int fresh = gatedCount(e, 0);
+        p.arpHold = false; e.layer(0).setParams(p);
+        e.noteOff(72);
+        for (int i = 0; i < 4; ++i) e.render(L.data(), R.data(), 256);
+        check(held == 3 && kept == 3 && fresh == 1 && gatedCount(e, 0) == 0,
+              fmt("ARP off: the chord held sounds (%.0f); HOLD keeps it after the keys (%.0f), a new key takes over (%.0f)", held, kept, fresh));
+    }
+    {   // each layer its own arpeggio, on the same grid
+        Engine e; setup(e, kArpUp);
+        LayerParams p = e.layer(0).params(); p.arpDiv = 3; e.layer(1).setParams(p);   // layer 2 in eighths
+        PerfParams pp = e.perf(); pp.playMode = kPlayDual; e.setPerf(pp);
+        chord(e);
+        const ArpRun a = watchArp(e, 0, 24000);
+        Engine e2; setup(e2, kArpUp);
+        e2.layer(1).setParams(p);
+        e2.setPerf(pp);
+        chord(e2);
+        const ArpRun b = watchArp(e2, 1, 24000);
+        check(a.notes.size() == 4 && b.notes.size() == 2 && b.at.size() == 2 && std::abs(b.at[1] - 12000) <= 32,
+              fmt("DUAL, two arpeggios: layer 1 in sixteenths (%.0f notes), layer 2 in eighths (%.0f), together", double(a.notes.size()), double(b.notes.size())));
+    }
+}
+
+static void testExtIn() {
+    std::printf("external input\n");
+    const int n = 256;
+    std::vector<float> L(n), R(n), xL(n), xR(n);
+    Rng r(5);
+    auto burst = [&](bool on) { for (int i = 0; i < n; ++i) { xL[size_t(i)] = on ? 0.5f * r.bi() : 0.0f; xR[size_t(i)] = xL[size_t(i)]; } };
+    {   // the follower
+        Engine e; e.prepare(48000, n);
+        PerfParams pp; pp.efAttack = 0.005f; pp.efRelease = 0.1f; e.setPerf(pp);
+        e.setExtConnected(true);
+        float peak = 0.0f;
+        for (int b = 0; b < 40; ++b) { burst(true); e.render(L.data(), R.data(), n, xL.data(), xR.data()); peak = std::max(peak, e.follower()); }
+        for (int b = 0; b < 190; ++b) { burst(false); e.render(L.data(), R.data(), n, xL.data(), xR.data()); }
+        check(peak > 0.35f && e.follower() < 0.02f, fmt("the follower rises with the input (%.2f) and falls away after it (%.3f after 1 s)", peak, e.follower()));
+    }
+    {   // VCA ON/EXT: the input opens the VCA
+        Engine e; e.prepare(48000, n);
+        LayerParams p = plain(); p.vcaSrc = 2; e.layer(0).setParams(p);
+        PerfParams pp; pp.efAttack = 0.002f; pp.efRelease = 0.05f; e.setPerf(pp);
+        e.setExtConnected(true);
+        e.noteOn(57, 1);
+        auto rms = [&](bool on, int blocks) {
+            double s = 0;
+            for (int b = 0; b < blocks; ++b) { burst(on); e.render(L.data(), R.data(), n, xL.data(), xR.data()); for (float x : L) s += double(x) * x; }
+            return std::sqrt(s / (blocks * n));
+        };
+        rms(false, 40);
+        const double quiet = rms(false, 20), open = rms(true, 20);
+        check(open > 0.02 && quiet < open * 0.02, fmt("VCA ON/EXT: a held note sounds with the input (%.3f), not without it (%.5f)", open, quiet));
+    }
+    {   // the input into layer 1's filter, at its EXT level
+        Engine e; e.prepare(48000, n);
+        LayerParams p = plain(); p.osc1Level = 0.0f; p.extLevel = 0.6f; e.layer(0).setParams(p);
+        e.noteOn(60, 1);
+        double s = 0;
+        for (int b = 0; b < 20; ++b) {
+            for (int i = 0; i < n; ++i) xL[size_t(i)] = xR[size_t(i)] = 0.3f * std::sin(0.05f * float(b * n + i));
+            e.render(L.data(), R.data(), n, xL.data(), xR.data());
+            for (float x : L) s += double(x) * x;
+        }
+        check(std::sqrt(s / (20 * n)) > 0.02, fmt("EXT IN: the input through layer 1's filter and VCA (%.3f)", std::sqrt(s / (20 * n))));
+    }
+}
+
 int main() {
     testPitch();
     testAliasing();
@@ -542,6 +907,9 @@ int main() {
     testMatrix();
     testNoteRnd();
     testVary();
+    testPlayModes();
+    testArp();
+    testExtIn();
     testStability();
     testCost();
     std::printf(failures ? "%d FAILED\n" : "all passed\n", failures);
