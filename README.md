@@ -10,6 +10,11 @@ each section, push keys with lamps, and an amber display with four encoders.
 
 ## Playing it
 
+- **Two layers.** LAYER 1 and LAYER 2 choose which layer the panel edits: the top row,
+  the arpeggiator, DICE and VARY, the effects and the display's pages (their title says
+  L1 or L2). Each layer keeps its own voice mode row, voice lamps and mixer column, live
+  whichever you edit. SHIFT + LAYER 1 swaps the layers; SHIFT + LAYER 2 copies the one
+  you are editing onto the other.
 - **Top row:** the sound of the layer you are editing (oscillators, mixer, filter,
   LFOs, envelopes). **Bottom row:** playing and programming.
 - **Knobs and faders:** drag (Shift for fine), scroll, double-click for the default.
@@ -24,7 +29,29 @@ each section, push keys with lamps, and an amber display with four encoders.
   outline shows where you are); the arrow keys change the one in focus, Shift for fine,
   Space presses a key, Delete returns it to its default. VoiceOver reads each control's
   name and value.
-- Controls that arrive in stage 2 are drawn faded until they work.
+- **PLAY MODE** decides how the layers share the keys: 1 SINGLE (the layer you are
+  editing), 2 DUAL (both), 3 SPLIT (layer 2 below the split point, layer 1 from it),
+  4 ONE-TWO (the first key on layer 1, keys played with it on layer 2), 5 ROTATE (each
+  note the other layer), 6 RANDOM (at the odds on the RNDMZR LAYERS page), 7 CHAOS
+  (random, with fifths and octaves thrown in at the chances on the RNDMZR!? page) and
+  8 CASCADE (layer 1 is layer 2's oscillator: it plays into layer 2's filter at layer 2's
+  EXT IN level, and is heard only through it). SHIFT + PLAY MODE opens ZONES, and the
+  next key you play becomes the split point. KEY RANGES gives each layer a lowest and
+  highest key, in every mode; a layer set to its own MIDI channel takes that channel's
+  notes whatever the mode.
+- **The arpeggiators:** each layer has its own. ON, HOLD (the arpeggio plays on after
+  you let go, until the next chord; with the arpeggiator off it holds the notes), MODE
+  (up, down, up + down, up & down, random, as played, chord) and RANGE (one to four
+  octaves); the ARP pages add the division (1/1 to 1/32, and triplets), swing and gate.
+  Both run on one clock: with HOST lit, Logic's tempo, and its beat while it plays, so
+  arpeggios land on the bar; otherwise TEMPO, or TAP (tapping takes the clock from
+  Logic). TAP's lamp flashes on the beat; ON's beats while its arpeggio plays.
+- **The side chain (EXT IN)** is built but switched off in this build: giving Tandem an
+  input bus left it silent in Logic, so the plugin has none for now (`-DTD_SIDECHAIN=ON`
+  builds it with one). With it, layer 1's EXT IN knob feeds the side chain into its
+  filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
+  matrix source on both layers, and with the VCA on GATE it opens and closes the VCA.
+  Layer 2's EXT IN knob is CASCADE's level, and works.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
   or use the PAGE arrows, for the next page; click the title for a list of the pages). The four encoders, or dragging a column,
   change the four values above them. Touch any control and it shows its value.
@@ -52,8 +79,9 @@ each section, push keys with lamps, and an amber display with four encoders.
   with each note; VARY sets how much you hear, from none at 0. The roll is saved with the
   patch, and a second's pause starts the pattern again, so a phrase varies the same way
   each time.
-- **Patches:** eight keys and eight banks; the first six hold 48 factory sounds (basses,
-  leads, pads, keys, plucks, effects). Right-click a patch key (or click the top
+- **Patches:** eight keys and eight banks of factory sounds: A to F play one layer
+  (basses, leads, pads, keys, plucks, effects); G uses both layers and the play modes,
+  H the arpeggiators. SHIFT + the same bank key again reaches your own patches. Right-click a patch key (or click the top
   line of the display) for the whole list. WRITE saves the sound as one of yours
   (in Music / Rumpus Room Records / Tandem / Presets); its lamp blinks when the patch
   has been changed. COMPARE flips between the patch as edited and as stored.
@@ -66,8 +94,8 @@ each section, push keys with lamps, and an amber display with four encoders.
 
 | Stage | What | State |
 | --- | --- | --- |
-| 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets. The layer keys, play mode, arpeggiator and layer 2's mixer, voice mode and lamps are on the panel but say "stage 2" | **this build** |
-| 2 | The second layer, the eight play modes (single, dual, split, one-two, rotate, random, chaos, cascade), an arpeggiator per layer, the side chain as EXT IN with the envelope follower | to do |
+| 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
+| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | **this build** |
 | 3 | Importing your own single-cycle waves, matrix polish, more presets, final-quality render | to do |
 
 ## Installing
@@ -140,7 +168,20 @@ chorus and a 3-band equaliser. On FX SEND: a delay locked to Logic's tempo (ster
 ping-pong, mono; with freeze) and an eight-line reverb.
 
 Cost, one layer at 44.1 kHz with effects on: 4 voices about 8% of one core here;
-16 voices with full detune about 45%.
+16 voices with full detune about 45%. A layer with nothing to play, its effects' tails
+gone, sleeps and costs nothing, so SINGLE costs what one layer does.
+
+**Play modes and arpeggiators.** Notes go through the play mode to a layer (each key
+remembers where it went, so changing the mode or the edited layer while it is held
+cannot strand it), then through that layer's arpeggiator. The arpeggiators run on one
+beat clock and are sample-accurate: at 120 BPM in sixteenths every step lands within 32
+samples of its 6000-sample grid, full swing puts the off steps a third of a step late,
+and on Logic's grid a key a little late for a step plays at once while a later one waits
+for the next. A loop back in Logic re-grids them without a stall.
+
+**The side chain.** The envelope follower is a peak follower with its own attack and
+release (1 ms to 3 s), a threshold and input gain. In CASCADE layer 1's whole output
+(its effects included) feeds layer 2's voices through the same path as the EXT IN.
 
 ## Layout
 
@@ -149,8 +190,9 @@ Cost, one layer at 44.1 kHz with effects on: 4 voices about 8% of one core here;
   - `td_wave.hpp`: the wave tables and the 32 alternative waves
   - `td_voice.hpp`: envelopes, LFOs, the filter core and the voice
   - `td_layer.hpp`: voice allocation and the layer's signal chain
+  - `td_arp.hpp`: the arpeggiator and HOLD
   - `td_fx.hpp`: the effects
-  - `td_engine.hpp`: the instrument
+  - `td_engine.hpp`: the instrument: the play modes, the clock, the follower
 - `plugin/`: the JUCE plugin.
   - `Params.h`: every parameter, and how they become the engine's settings
   - `Presets.h`: the factory presets

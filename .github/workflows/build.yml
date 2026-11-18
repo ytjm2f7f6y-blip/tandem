@@ -65,6 +65,9 @@ jobs:
           sleep 3
           auval -strict -v aumu Tndm SamP 2>&1 | tee auval.log
 
+      - name: Play notes through the installed Audio Unit (as Logic hosts it)
+        run: build/au_host_artefacts/Release/au_host 2>&1 | tee auhost.log
+
       - name: Validate Audio Unit (pluginval)
         run: |
           curl -sSL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
@@ -119,4 +122,5 @@ jobs:
           note "Engine and plugin tests" tests.short
           note "Binary" binary.log
           note "auval (tail)" auval.short
+          note "Hosted as an Audio Unit" auhost.log
           note "pluginval (summary)" pluginval.short

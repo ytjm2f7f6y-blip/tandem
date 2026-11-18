@@ -47,10 +47,13 @@ public:
 
     juce::AudioProcessorValueTreeState apvts;
 
-    // ---- parameters (message thread), by layer key
-    juce::RangedAudioParameter* param(const juce::String& key, int layer = 0) const;      // a layer key, "volume" or "setup_..."
+    // ---- parameters (message thread), by key: a layer key ("cutoff"), "perf_...", "setup_..." or "volume".
+    // A layer key is the edited layer's unless it says which: "2:cutoff", or layer 0 / 1.
+    juce::RangedAudioParameter* param(const juce::String& key, int layer = -1) const;
     juce::RangedAudioParameter* volume() const { return volume_; }
-    float value(const juce::String& key, int layer = 0) const;
+    float value(const juce::String& key, int layer = -1) const;
+    int editLayer() const { return juce::jlimit(0, 1, juce::roundToInt(editLayerRaw_->load(std::memory_order_relaxed))); }
+    void setEditLayer(int layer);
     static void set(juce::RangedAudioParameter* p, float value);      // in the parameter's own units, host told
 
     // ---- presets: factory, then the person's own files (message thread)
@@ -88,12 +91,22 @@ public:
     int bank = 0;                            // the patch keys' bank, A-H
     bool drawerOpen = false;
     bool overdriven() const { return odrive_.load(std::memory_order_relaxed); }
+    // SHIFT + PLAY MODE: the next key played sets the split point (the window applies it).
+    void learnSplit(bool on) { learnNote_.store(-1); learning_.store(on); }
+    bool learningSplit() const { return learning_.load(); }
+    int learnedSplit() { const int n = learnNote_.exchange(-1); return n; }
+    // The clock, as of the last block: its beat and tempo; whether layer i's arpeggiator is playing.
+    double clockBeat() const { return beat_.load(std::memory_order_relaxed); }
+    float clockTempo() const { return tempo_.load(std::memory_order_relaxed); }
+    bool arpPlaying(int layer) const { return arpRun_[size_t(layer & 1)].load(std::memory_order_relaxed); }
+    bool sideChainConnected() const { return sideOn_.load(std::memory_order_relaxed); }
+    float follower() const { return follow_.load(std::memory_order_relaxed); }
     // The voices' lamps and the matrix's live output, as of the last block (the audio thread writes them).
     // One lamp per voice as the VOICES setting counts them: in the stereo routing a note takes two.
     static constexpr int kMeterVoices = 16;
     float voiceMeter(int layer, int voice) const { return meters_[size_t(layer & 1)][size_t(juce::jlimit(0, kMeterVoices - 1, voice))].load(std::memory_order_relaxed); }
     int voiceCount(int layer) const { return vcount_[size_t(layer & 1)].load(std::memory_order_relaxed); }
-    float modNow(int dest) const { return dest > 0 && dest < td::kNumModDests ? modNow_[size_t(dest)].load(std::memory_order_relaxed) : 0.0f; }
+    float modNow(int dest) const { return dest > 0 && dest < td::kNumModDests ? modNow_[size_t(dest)].load(std::memory_order_relaxed) : 0.0f; }     // the edited layer's
     int voicesSounding() const { return sounding_.load(std::memory_order_relaxed); }
     double sampleRate() const { return sampleRate_; }
 
@@ -101,6 +114,7 @@ public:
     td::Engine& engine() { return engine_; }
 
 private:
+    static BusesProperties buses();          // the output; with TD_SIDECHAIN, the side chain input too
     using Setting = std::vector<float>;
     Setting currentSetting() const;
     void applySetting(const Setting& s);
@@ -108,10 +122,12 @@ private:
 
     td::Engine engine_;
     tp::LayerReader reader_[td::Engine::kLayers];
+    tp::PerfReader perfReader_;
+    std::atomic<float>* editLayerRaw_ = nullptr;
     juce::RangedAudioParameter* volume_ = nullptr;
     std::atomic<float>* volumeRaw_ = nullptr;
     struct Setup { std::atomic<float>* tune = nullptr, *transpose = nullptr, *velocity = nullptr, *pressure = nullptr, *ch1 = nullptr, *ch2 = nullptr, *age = nullptr, *pedal = nullptr; } setup_;
-    int noteMap_[128];                       // the note each key started, so transposing while it is held cannot strand it
+    int noteMap_[16 * 128];                  // the note each key (per channel) started, so transposing while it is held cannot strand it
     float lastPedal_ = 0.0f;                 // the sustain pedal as last sent (0..1), and the polarity it was read with
     bool lastPedalInv_ = false;
     std::vector<juce::RangedAudioParameter*> all_;
@@ -134,7 +150,13 @@ private:
     bool editing_ = false;
 
     double sampleRate_ = 48000;
-    std::vector<float> l_, r_;
+    std::vector<float> l_, r_, scL_, scR_;
+    std::atomic<bool> learning_{false};
+    std::atomic<int> learnNote_{-1};
+    std::atomic<double> beat_{0.0};
+    std::atomic<float> tempo_{120.0f}, follow_{0.0f};
+    std::array<std::atomic<bool>, 2> arpRun_{};
+    std::atomic<bool> sideOn_{false};
     std::atomic<bool> odrive_{false};
     std::atomic<int> sounding_{0};
     std::array<std::array<std::atomic<float>, kMeterVoices>, 2> meters_{};

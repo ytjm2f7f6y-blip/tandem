@@ -6,6 +6,7 @@
 #include "Layout.h"
 #include "PluginProcessor.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -13,7 +14,6 @@
 struct TandemArt {
     TandemArt();
     juce::Image panel, drawer, leds, faderCap;
-    juce::Image faded;                  // the panel washed toward its own colour: drawn over controls not yet working
     juce::Image strip[layout::kNumStrips];
     int stripFrames[layout::kNumStrips] = {};
     juce::Typeface::Ptr legend;
@@ -64,6 +64,14 @@ public:
     bool doRedo();
     void focusControl(const char* controlId);                // keyboard focus, as Tab would give it
     juce::String accessibleReading(const char* controlId);   // what VoiceOver is told of a control: "role: title, value"
+    void selectLayer(int layer);                             // LAYER 1 / LAYER 2: which layer the panel edits
+    void swapLayers();                                       // SHIFT + LAYER 1
+    void copyLayer();                                        // SHIFT + LAYER 2: the edited layer onto the other
+    void tap(double ms);                                     // TAP, at this time (milliseconds)
+    void pressControl(const char* controlId);               // as if that key were clicked
+    // For tests: one frame of the window's timer, and every area it asks to be repainted.
+    void tick() { timerCallback(); }
+    std::function<void(juce::Rectangle<int>)> repaintHook;
     static constexpr int kMatrixFirst = 1;                   // the MOD menu: the overview, then a page a slot
 
     static const std::vector<DisplayPage>& pages(int menu);
@@ -78,10 +86,9 @@ private:
     // ---- controls
     juce::RangedAudioParameter* param(int ci) const;
     juce::String keyOf(int ci) const;
-    float norm(int ci) const;            // where a knob or fader sits, 0..1 (inert ones: their resting place)
+    float norm(int ci) const;            // where a knob or fader sits, 0..1
     int choice(int ci) const;            // a stepped control's position
     bool ledOn(int ci, int k) const;
-    bool inert(int ci) const;            // a stage 2 control: drawn, but not yet working
     int hit(juce::Point<float> pt) const;
     juce::Rectangle<float> boundsOf(int ci) const;
     void repaintPts(juce::Rectangle<float> r);
@@ -90,7 +97,6 @@ private:
     void selectLamp(int ci, int k);                    // straight to the setting that lamp stands for
     void showControlMenu(int ci);                      // right-click: its page, its default, modulation
     void showPageMenu();                               // the display's title: every page of this menu
-    juce::Rectangle<float> dimArea(int ci) const;      // a stage 2 control, its legends with it
     void drawValueTag(juce::Graphics&);
     juce::Rectangle<float> tagRect(int ci, const juce::String& text) const;
     juce::String tagText(int ci) const;
@@ -143,12 +149,11 @@ private:
     float s_ = 1.0f;
 
     std::vector<juce::String> key_;      // the parameter each control works, by control index
-    std::vector<uint64_t> drawn_;        // what each control looked like when last painted
+    std::vector<uint64_t> drawn_;        // what each control looked like when the timer last had it repainted
     uint64_t look(int ci) const;
     float encAngle_[4] = {36, 144, 252, 90};
     double clock_ = 0;
     double odUntil_ = 0;
-    juce::String drawnTitle_;
 
     juce::String touchedKey_, noticeText_;
     double touchedUntil_ = 0, noticeUntil_ = 0;
@@ -157,7 +162,10 @@ private:
     int assignSlot_ = -1;
     double diceUntil_ = 0;
     float depth_[td::kNumModDests] = {};          // how much each destination is modulated (the sum of its slots' amounts)
-    juce::RangedAudioParameter* slot_[td::kMatrixSlots][5] = {};
+    juce::RangedAudioParameter* slot_[2][td::kMatrixSlots][5] = {};     // per layer
+    std::vector<double> taps_;                    // TAP: when it was last pressed (ms)
+    double learnUntil_ = 0;                       // ZONES: the next key played sets the split, till then
+    bool layerKeyLike(const juce::String& key) const;  // a layer's key (not the instrument's)
     int pressLamp_ = -1;                          // the lamp a key press began on
     int tagCi_ = -1;                              // the control whose value tag shows, till tagUntil_
     double tagUntil_ = 0;

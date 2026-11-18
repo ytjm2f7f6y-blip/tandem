@@ -49,7 +49,7 @@ int main() {
         p.prepareToPlay(sr, block);
         const int n = p.getParameters().size();
         std::printf("      %d parameters\n", n);
-        CHECK(n > 120, "a layer's parameters and the volume are all there");
+        CHECK(n > 350 && p.param("cutoff", 1) != nullptr && p.param("perf_mode") != nullptr, "both layers' parameters, the play mode's and the volume are all there");
         CHECK(p.getLatencySamples() == 24, "the latency the host is told is the decimator's (24 samples at 48 kHz)");
 
         const Stats quiet = play(p, sr, block, {}, 0.2, 0.0);
@@ -235,12 +235,270 @@ int main() {
         const auto reading = te->accessibleReading("f_cutoff"), shown = te->accessibleReading("disp"), arp = te->accessibleReading("arp_on");
         std::printf("      VoiceOver: %s | %s | %s\n", reading.toRawUTF8(), arp.toRawUTF8(), shown.substring(0, 60).toRawUTF8());
         CHECK(cutoff && std::abs(p.param("cutoff")->getValue() - (before - 0.01f)) < 1e-4f && reading.startsWith("slider: Cutoff, ") && reading.endsWith("Hz")
-                  && arp.endsWith("arrives in stage 2") && shown.startsWith("text: Display, MOD"),
+                  && arp == "button: Arpeggiator, Off" && shown.startsWith("text: Display, MOD"),
               "the keyboard: Cutoff's stand-in takes the arrow keys, and VoiceOver hears what each control is and reads");
         int focusable = 0;
         for (auto* c : te->getChildren()) focusable += c->getWantsKeyboardFocus();
         std::printf("      %d controls on the keyboard's path\n", focusable);
         CHECK(focusable > 100, "Tab reaches every knob, fader and key");
+    }
+
+    {   // Stage 2: the second layer, the play modes, the arpeggiators, the side chain.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        juce::AudioBuffer<float> io(2, block);
+        auto run = [&](juce::MidiBuffer m, int blocks) {
+            p.processBlock(io, m);
+            for (int b = 0; b < blocks; ++b) { juce::MidiBuffer none; p.processBlock(io, none); }
+        };
+        auto note = [](int n, bool on, int ch = 1) { juce::MidiBuffer m; m.addEvent(on ? juce::MidiMessage::noteOn(ch, n, 0.8f) : juce::MidiMessage::noteOff(ch, n), 0); return m; };
+        auto sounding = [&](int L) { return p.engine().layer(L).soundingVoices(); };
+
+        // LAYER 2: the panel edits layer 2, and in SINGLE it is the one that plays.
+        te->pressControl("layer_2");
+        const bool editing = p.editLayer() == 1 && p.param("cutoff")->getParameterID() == "l2_cutoff";
+        TandemProcessor::set(p.param("cutoff"), 0.4f);
+        run(note(60, true), 4);
+        const bool l2 = sounding(1) > 0 && sounding(0) == 0;
+        run(note(60, false), 100);
+        CHECK(editing && l2 && std::abs(p.value("cutoff", 0) - 1.0f) < 1e-4f && std::abs(p.value("cutoff", 1) - 0.4f) < 1e-4f && p.presetEdited(),
+              "LAYER 2: the panel edits layer 2 (layer 1 untouched), and SINGLE plays it");
+        CHECK(!p.canUndo() || p.undoName() != "EDIT LAYER", "choosing a layer to edit is not an edit to undo");
+
+        // SHIFT + LAYER 1 swaps them; SHIFT + LAYER 2 copies the edited layer onto the other.
+        te->openPageFor("layer_1");
+        const bool swapped = std::abs(p.value("cutoff", 0) - 0.4f) < 1e-4f && std::abs(p.value("cutoff", 1) - 1.0f) < 1e-4f;
+        te->doUndo();
+        const bool unswapped = std::abs(p.value("cutoff", 1) - 0.4f) < 1e-4f;
+        te->openPageFor("layer_2");
+        CHECK(swapped && unswapped && std::abs(p.value("cutoff", 0) - 0.4f) < 1e-4f, "SHIFT + LAYER 1 swaps the layers (and UNDO swaps them back); SHIFT + LAYER 2 copies");
+
+        // The play mode ring: DUAL plays both.
+        te->selectLampFor("play_mode", td::kPlayDual);
+        run(note(60, true), 4);
+        const bool dual = sounding(0) > 0 && sounding(1) > 0;
+        run(note(60, false), 100);
+        CHECK(juce::roundToInt(p.value("perf_mode")) == td::kPlayDual && dual, "the PLAY MODE ring: DUAL plays both layers");
+
+        // ZONES: SHIFT + PLAY MODE, then a key sets the split.
+        te->openPageFor("play_mode");
+        const bool zones = p.menu == 0 && juce::String(TandemEditor::pages(0)[size_t(p.page[0])].title) == "ZONES" && p.learningSplit();
+        run(note(72, true), 2);
+        const int learnt = p.learnedSplit();
+        run(note(72, false), 50);
+        CHECK(zones && learnt == 72 && !p.learningSplit(), "SHIFT + PLAY MODE opens ZONES; the next key played is the split");
+
+        // MIDI channels: each layer its own.
+        TandemProcessor::set(p.param("setup_ch1"), 1.0f);
+        TandemProcessor::set(p.param("setup_ch2"), 2.0f);
+        run(note(48, true, 2), 4);
+        const bool ch2 = sounding(1) > 0 && sounding(0) == 0;
+        run(note(48, false, 2), 100);
+        TandemProcessor::set(p.param("setup_ch1"), 0.0f);
+        TandemProcessor::set(p.param("setup_ch2"), 0.0f);
+        CHECK(ch2, "MIDI CH L2: a layer on its own channel takes that channel's notes, in any play mode");
+
+        // The arpeggiator, on layer 1 alone, at the panel's own tempo.
+        te->selectLampFor("play_mode", td::kPlaySingle);
+        te->pressControl("layer_1");
+        te->pressControl("arp_on");
+        TandemProcessor::set(p.param("perf_host"), 0.0f);
+        TandemProcessor::set(p.param("perf_tempo"), 120.0f);
+        juce::MidiBuffer chord;
+        for (int n : {60, 64, 67}) chord.addEvent(juce::MidiMessage::noteOn(1, n, 0.8f), 0);
+        p.processBlock(io, chord);
+        int starts = 0;
+        uint64_t last = 0;
+        for (int b = 0; b < int(sr / block); ++b) {     // a second
+            juce::MidiBuffer none;
+            p.processBlock(io, none);
+            uint64_t newest = 0;
+            for (int i = 0; i < td::Layer::kMaxVoices; ++i) newest = std::max(newest, p.engine().layer(0).voice(i).age);
+            if (newest != last) { ++starts; last = newest; }
+        }
+        std::printf("      the arpeggio: %d steps in a second at 120 BPM, 1/16\n", starts);
+        CHECK(p.value("arp_on") >= 0.5f && starts >= 7 && starts <= 9 && p.arpPlaying(0), "ARP ON: a held chord plays as an arpeggio, eight steps a second at 120 BPM");
+        juce::MidiBuffer upAll;
+        for (int n : {60, 64, 67}) upAll.addEvent(juce::MidiMessage::noteOff(1, n), 0);
+        run(upAll, 100);
+        te->pressControl("arp_on");
+
+        // TAP: taps half a second apart make 120 BPM, and take the clock from the host.
+        TandemProcessor::set(p.param("perf_host"), 1.0f);
+        te->tap(1000.0); te->tap(1500.0); te->tap(2000.0);
+        CHECK(std::abs(p.value("perf_tempo") - 120.0f) < 0.5f && p.value("perf_host") < 0.5f, "TAP: taps half a second apart set 120 BPM, and HOST goes off");
+
+        // The side chain: VCA ON/EXT opens with the input. (Only in builds with the side chain bus.)
+        if (TandemProcessor().getBusCount(true) > 0) {
+            TandemProcessor q;
+            auto layout = q.getBusesLayout();
+            layout.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
+            const bool takes = q.setBusesLayout(layout);
+            q.setRateAndBufferSizeDetails(sr, block);
+            q.prepareToPlay(sr, block);
+            TandemProcessor::set(q.param("vca_src"), 2.0f);
+            TandemProcessor::set(q.param("perf_efrel"), 0.05f);
+            juce::AudioBuffer<float> buf(2, block);
+            juce::Random rnd(3);
+            double withIn = 0, without = 0;
+            juce::MidiBuffer on;
+            on.addEvent(juce::MidiMessage::noteOn(1, 57, 0.9f), 0);
+            for (int b = 0; b < 110; ++b) {
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < block; ++i) buf.setSample(c, i, b < 30 ? 0.4f * (rnd.nextFloat() * 2 - 1) : 0.0f);
+                juce::MidiBuffer m;
+                if (b == 0) m = on;
+                q.processBlock(buf, m);
+                double s = 0;
+                for (int i = 0; i < block; ++i) s += double(buf.getSample(0, i)) * buf.getSample(0, i);
+                if (b > 10 && b < 30) withIn += s; else if (b >= 90) without += s;      // half a second after it stops
+            }
+            std::printf("      side chain: %.4f with the input, %.6f without\n", std::sqrt(withIn / (19.0 * block)), std::sqrt(without / (20.0 * block)));
+            CHECK(takes && q.sideChainConnected() && withIn > 1e-3 && without < withIn * 1e-3, "the side chain (EXT IN): with VCA ON/EXT, a held note sounds while the input does");
+        }
+
+        // The mouse, as a host delivers it: a drag up on a knob turns it; a click on a ring steps it.
+        {
+            auto at = [](const char* id) {
+                for (int i = 0; i < layout::kNumControls; ++i)
+                    if (juce::String(layout::kControls[i].id) == id) return juce::Point<float>(layout::kControls[i].x, layout::kControls[i].y);
+                return juce::Point<float>();
+            };
+            auto src = juce::Desktop::getInstance().getMainMouseSource();
+            const auto t0 = juce::Time::getCurrentTime();
+            auto ev = [&](juce::Point<float> pos, juce::Point<float> down, bool dragged) {
+                return juce::MouseEvent(src, pos, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down,
+                                        t0, 1, dragged);
+            };
+            auto drag = [&](const char* id, float up) {
+                const auto c = at(id);
+                te->mouseDown(ev(c, c, false));
+                for (int k = 1; k <= 4; ++k) te->mouseDrag(ev(c.translated(0, -up * float(k) / 4.0f), c, true));
+                te->mouseUp(ev(c.translated(0, -up), c, true));
+            };
+            te->pressControl("layer_1");
+            TandemProcessor::set(p.param("resonance"), 0.0f);
+            drag("f_res", 44.0f);
+            const float res = p.value("resonance");
+            te->pressControl("layer_2");
+            TandemProcessor::set(p.param("resonance"), 0.0f);
+            drag("f_res", 22.0f);
+            const float res2 = p.value("resonance", 1), res1 = p.value("resonance", 0);
+            const int wave = juce::roundToInt(p.value("osc1_wave"));
+            const auto w = at("o1_wave");
+            te->mouseDown(ev(w, w, false));
+            te->mouseUp(ev(w, w, false));
+            std::printf("      a 44-point drag up on RESONANCE: %.3f; on layer 2, 22 points: %.3f (layer 1 kept %.3f)\n", res, res2, res1);
+            CHECK(std::abs(res - 0.2f) < 0.01f && std::abs(res2 - 0.1f) < 0.01f && std::abs(res1 - 0.2f) < 0.01f
+                      && juce::roundToInt(p.value("osc1_wave")) == (wave + 1) % 12,
+                  "the mouse: a drag turns a knob of the layer being edited; a click steps a ring");
+            te->pressControl("layer_1");
+        }
+
+        // What the window draws: a knob turned to a value shows the frame of its strip for that value
+        // (checked by matching the drawn knob against every frame, on whatever renderer this machine uses).
+        {
+            juce::SharedResourcePointer<TandemArt> art;
+            int ci = -1;
+            for (int i = 0; i < layout::kNumControls; ++i) if (juce::String(layout::kControls[i].id) == "f_res") ci = i;
+            const auto& c = layout::kControls[ci];
+            const auto& strip = art->strip[c.strip];
+            const int frames = art->stripFrames[c.strip], fw = strip.getWidth();
+            const float box = 2.0f * layout::kKnobRadius[c.kind] + 2.0f * layout::kShadowMargin;
+            const int bw = juce::roundToInt(box), x0 = juce::roundToInt(c.x - box / 2), y0 = juce::roundToInt(c.y - box / 2);
+            const float rr = layout::kKnobRadius[c.kind] * 0.8f;
+            std::vector<juce::Image> scaled;
+            for (int f = 0; f < frames; ++f)
+                scaled.push_back(strip.getClippedImage({0, f * fw, fw, fw}).rescaled(bw, bw, juce::Graphics::mediumResamplingQuality)
+                                     .convertedToFormat(juce::Image::ARGB));
+            te->pressControl("layer_1");
+            te->setScale(1.0f);
+            juce::String seen;
+            bool right = frames > 10;
+            for (float v : {0.0f, 0.3f, 0.5f, 0.8f, 1.0f}) {
+                TandemProcessor::set(p.param("resonance"), v);
+                const auto snap = te->createComponentSnapshot(te->getLocalBounds(), true, 1.0f).convertedToFormat(juce::Image::ARGB);
+                const juce::Image::BitmapData sd(snap, juce::Image::BitmapData::readOnly);
+                int best = -1;
+                double bestErr = 1e300;
+                for (int f = 0; f < frames; ++f) {
+                    const juce::Image::BitmapData fd(scaled[size_t(f)], juce::Image::BitmapData::readOnly);
+                    double err = 0;
+                    for (int y = 0; y < bw; ++y)
+                        for (int x = 0; x < bw; ++x) {
+                            const float dx = float(x) + 0.5f - box / 2, dy = float(y) + 0.5f - box / 2;
+                            if (dx * dx + dy * dy > rr * rr || x0 + x >= sd.width || y0 + y >= sd.height) continue;
+                            const auto a = sd.getPixelColour(x0 + x, y0 + y), b = fd.getPixelColour(x, y);
+                            err += std::abs(int(a.getRed()) - int(b.getRed())) + std::abs(int(a.getGreen()) - int(b.getGreen())) + std::abs(int(a.getBlue()) - int(b.getBlue()));
+                        }
+                    if (err < bestErr) { bestErr = err; best = f; }
+                }
+                const int want = juce::roundToInt(v * float(frames - 1));
+                seen << juce::String(v, 1) << ": frame " << best << " (" << want << ")  ";
+                right = right && std::abs(best - want) <= 1;
+            }
+            std::printf("      RESONANCE as drawn: %s of %d frames, %dx%d snapshot\n", seen.toRawUTF8(), frames, te->getWidth(), te->getHeight());
+            CHECK(right, "the knob drawn shows the strip's frame for its value");
+
+            // Turning a knob in a real window: the window only repaints the areas it asks for, one at a
+            // time, as the system does. After a drag the knob on the screen must be the knob as it now is.
+            juce::Image screen(juce::Image::ARGB, te->getWidth(), te->getHeight(), true);
+            std::vector<juce::Rectangle<int>> dirty;
+            te->repaintHook = [&](juce::Rectangle<int> r) { dirty.push_back(r); };
+            auto paintDirty = [&] {
+                for (const auto& r : dirty) { juce::Graphics g(screen); g.reduceClipRegion(r); te->paint(g); }
+                dirty.clear();
+            };
+            auto frame = [&] { te->tick(); paintDirty(); };
+            { juce::Graphics g(screen); te->paint(g); }
+            for (int i = 0; i < 5; ++i) frame();
+            auto at = [](const char* id) {
+                for (int i = 0; i < layout::kNumControls; ++i)
+                    if (juce::String(layout::kControls[i].id) == id) return juce::Point<float>(layout::kControls[i].x, layout::kControls[i].y);
+                return juce::Point<float>();
+            };
+            auto src = juce::Desktop::getInstance().getMainMouseSource();
+            const auto t0 = juce::Time::getCurrentTime();
+            auto ev = [&](juce::Point<float> pos, juce::Point<float> down, bool dragged) {
+                return juce::MouseEvent(src, pos, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down, t0, 1, dragged);
+            };
+            double worst = 0.0;
+            for (const char* id : {"f_res", "f_cutoff", "e2_vel", "level2", "fx_fb", "m_detune"}) {
+                const auto c0 = at(id);
+                te->mouseDown(ev(c0, c0, false));
+                paintDirty();
+                frame();
+                // The system paints what a mouse event asked for straight away, before the timer's next frame.
+                for (int k = 1; k <= 12; ++k) { te->mouseDrag(ev(c0.translated(0, -5.0f * float(k)), c0, true)); paintDirty(); frame(); }
+                te->mouseUp(ev(c0.translated(0, -60.0f), c0, true));
+                paintDirty();
+                for (int i = 0; i < 40; ++i) frame();          // the value tag comes and goes
+                const auto fresh = te->createComponentSnapshot(te->getLocalBounds(), true, 1.0f).convertedToFormat(juce::Image::ARGB);
+                const juce::Image::BitmapData a(screen, juce::Image::BitmapData::readOnly), b(fresh, juce::Image::BitmapData::readOnly);
+                double diff = 0;
+                int n = 0;
+                for (int y = int(c0.y) - 18; y <= int(c0.y) + 18; ++y)
+                    for (int x = int(c0.x) - 18; x <= int(c0.x) + 18; ++x, ++n) {
+                        const auto p1 = a.getPixelColour(x, y), p2 = b.getPixelColour(x, y);
+                        diff += std::abs(int(p1.getRed()) - int(p2.getRed())) + std::abs(int(p1.getGreen()) - int(p2.getGreen())) + std::abs(int(p1.getBlue()) - int(p2.getBlue()));
+                    }
+                diff /= double(n) * 3.0;
+                std::printf("      %-9s after a drag: on screen vs as it is, %.2f levels apart on average\n", id, diff);
+                worst = std::max(worst, diff);
+            }
+            te->repaintHook = nullptr;
+            CHECK(worst < 2.0, "turning a knob, the knob on the screen follows (the window repaints all of it, not a sliver)");
+        }
+
+        // A factory sound can set layer 2 ("2:key") and the play mode.
+        bool both = false;
+        for (int i = 0; i < tpre::kNumFactory; ++i) {
+            p.loadPreset(i);
+            if (juce::roundToInt(p.value("perf_mode")) != td::kPlaySingle) { both = true; break; }
+        }
+        CHECK(both, "factory sounds that use both layers");
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;

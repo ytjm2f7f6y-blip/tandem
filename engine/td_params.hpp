@@ -46,6 +46,30 @@ constexpr int kNumLfoDivs = 18;
 constexpr float kLfoBeats[kNumLfoDivs] = {16.0f, 8.0f, 6.0f, 4.0f, 3.0f, 8.0f / 3.0f, 2.0f, 1.5f, 4.0f / 3.0f,
                                           1.0f, 0.75f, 2.0f / 3.0f, 0.5f, 0.375f, 1.0f / 3.0f, 0.25f, 1.0f / 6.0f, 0.125f};
 
+// Play modes: how notes are shared between the two layers.
+enum PlayMode { kPlaySingle = 0, kPlayDual, kPlaySplit, kPlayOneTwo, kPlayRotate, kPlayRandom, kPlayChaos, kPlayCascade, kNumPlayModes };
+// The arpeggiator's orders. UP+DOWN turns without repeating the top and bottom notes; UP&DOWN repeats them.
+enum ArpMode { kArpUp = 0, kArpDown, kArpUpDown, kArpUpDown2, kArpRandom, kArpOrder, kArpChord, kNumArpModes };
+constexpr int kNumArpDivs = 8;
+// The arpeggiator's clock divisions, in beats, as the manual lists them: 1/1 .. 1/32, then 1/4T and 1/8T.
+constexpr float kArpBeats[kNumArpDivs] = {4.0f, 2.0f, 1.0f, 0.5f, 0.25f, 0.125f, 2.0f / 3.0f, 1.0f / 3.0f};
+
+// What belongs to the whole instrument rather than one layer: how the layers share the keys,
+// the tempo the arpeggiators run to, and the external input's envelope follower.
+struct PerfParams {
+    int playMode = kPlaySingle;
+    int layer = 0;                          // the layer the panel edits; SINGLE plays it
+    int split = 60;                         // SPLIT: the lowest note of layer 1's (upper) half
+    int lo[2] = {0, 0}, hi[2] = {127, 127}; // each layer's key range, in every mode
+    int fifthUp = 0, fifthDown = 0, octUp = 0, octDown = 0;   // CHAOS: the chance of each interval, in sixths
+    int layerOdds = 3;                      // RANDOM and CHAOS: layer 1's chance, in sixths (layer 2 has the rest)
+    int chan[2] = {0, 0};                   // MIDI channel per layer (0: all)
+    float tempo = 120.0f;                   // the internal clock (BPM)
+    bool hostSync = true;                   // HOST: the host's tempo, and its beat while it plays
+    float efAttack = 0.05f, efRelease = 0.24f;   // the follower's times, seconds
+    float efThresh = 0.0f, efGain = 1.0f;   // its threshold (0..1) and input gain (linear)
+};
+
 struct LayerParams {
     // ---- oscillators
     int osc1Wave = kWSaw, osc2Wave = kWSaw;
@@ -93,6 +117,10 @@ struct LayerParams {
     // ---- variation (DICE and VARY)
     float vary = 0.0f;                                               // 0: notes as played .. 1: the most
     int varySeed = 0;                                                // DICE's roll
+    // ---- arpeggiator (each layer its own)
+    bool arpOn = false, arpHold = false;
+    int arpMode = kArpUp, arpRange = 1, arpDiv = 4;                  // range: 1..4 octaves; div: kArpBeats (1/16)
+    float arpSwing = 0.0f, arpGate = 0.6f;                           // 0..1: swing (1: a triplet lilt); gate, of a step
     // ---- insert effects
     int drvMode = kDriveOff; float drvTone = 0.5f, drvAmt = 0.3f, drvMix = 1.0f;
     bool chOn = false; float chRate = 0.3f, chDepth = 0.4f, chDelay = 0.3f, chMix = 0.5f;

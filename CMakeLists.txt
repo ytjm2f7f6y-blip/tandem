@@ -1,12 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Tandem VERSION 0.1.0 LANGUAGES C CXX)
+project(Tandem VERSION 0.2.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(TD_BUILD_PLUGIN "Build the plugin (downloads JUCE)" ON)
 option(TD_BUILD_TESTS "Build the engine and plugin tests" ON)
+# The side chain input (EXT IN). Off: in Logic, giving the instrument an input bus left it silent.
+option(TD_SIDECHAIN "Give the plugin a side chain input bus (EXT IN)" OFF)
 
 # The engine: header-only, no dependencies.
 add_library(td_engine INTERFACE)
@@ -68,6 +70,9 @@ if(TD_BUILD_PLUGIN)
 
     set(TD_PLUGIN_SOURCES plugin/PluginProcessor.cpp plugin/PluginEditor.cpp)
     set(TD_DEFINES JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
+    if(TD_SIDECHAIN)
+        list(APPEND TD_DEFINES TD_SIDECHAIN=1)
+    endif()
 
     target_sources(Tandem PRIVATE ${TD_PLUGIN_SOURCES})
     target_include_directories(Tandem PRIVATE plugin)
@@ -96,5 +101,13 @@ if(TD_BUILD_PLUGIN)
         target_include_directories(ui_snapshot PRIVATE plugin tests)
         target_compile_definitions(ui_snapshot PRIVATE ${TD_DEFINES} JucePlugin_VersionString="${PROJECT_VERSION}")
         target_link_libraries(ui_snapshot PRIVATE td_engine TandemData juce::juce_audio_utils juce::juce_recommended_config_flags)
+
+        # Mac: the installed Audio Unit, hosted through Core Audio as Logic hosts it (run after installing).
+        if(APPLE)
+            juce_add_console_app(au_host PRODUCT_NAME "au_host")
+            target_sources(au_host PRIVATE tests/au_host.cpp)
+            target_compile_definitions(au_host PRIVATE JUCE_PLUGINHOST_AU=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+            target_link_libraries(au_host PRIVATE juce::juce_audio_processors juce::juce_recommended_config_flags "-framework CoreAudioKit")
+        endif()
     endif()
 endif()
