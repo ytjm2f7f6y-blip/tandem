@@ -1,7 +1,7 @@
 // Tandem: the factory presets. Each lists only what differs from the defaults, by parameter
 // key and in the parameter's own units (a choice is its index, a switch 0 or 1). A plain key is
 // layer 1's, "2:key" layer 2's; "perf_..." belongs to the whole instrument. The first six banks
-// play layer 1 alone; banks G and H use both layers.
+// play layer 1 alone; banks G to J use both layers.
 #pragma once
 
 namespace tpre {
@@ -196,6 +196,111 @@ inline const Preset kFactory[] = {
         {"2:arp_on", 1}, {"2:arp_mode", 3}, {"2:arp_range", 1}, {"2:arp_gate", 0.45f}, {"2:osc1_wave", 2}, {"2:octave", 3}, {"2:cutoff", 0.55f},
         {"2:vcf_mod", 0.4f}, {"2:e1_decay", 0.32f}, {"2:e2_decay", 0.36f}, {"2:e2_sustain", 0.0f}, {"2:e2_release", 0.3f}, {"2:fx_send", 0.3f},
         {"2:dly_time", 6}, {"2:dly_fb", 0.3f}, {"2:fx_balance", 0.3f}, {"2:level", 0.55f}, {nullptr, 0}}},
+    // ---- Bank I: two sounds at once.
+    // DUAL: a saw pad, and the same a fifth up and quieter: a parallel-fifths stack.
+    {"stack of fifths", "Both layers", {{"perf_mode", 1},
+        {"osc2_level", 0.45f}, {"osc2_fine", 6}, {"detune", 0.4f}, {"cutoff", 0.48f}, {"vcf_mod", 0.3f}, {"e1_attack", 0.45f}, {"e1_decay", 0.6f},
+        {"e1_sustain", 0.5f}, {"e2_attack", 0.4f}, {"e2_release", 0.55f}, {"fx_send", 0.35f}, {"fx_balance", 0.8f}, {"level", 0.55f}, {"pan", -0.2f},
+        {"2:osc1_tune", 7}, {"2:osc2_tune", 7}, {"2:osc2_level", 0.45f}, {"2:osc2_fine", -6}, {"2:detune", 0.4f}, {"2:cutoff", 0.44f}, {"2:vcf_mod", 0.3f},
+        {"2:e1_attack", 0.5f}, {"2:e1_decay", 0.6f}, {"2:e1_sustain", 0.5f}, {"2:e2_attack", 0.45f}, {"2:e2_release", 0.55f}, {"2:fx_send", 0.4f},
+        {"2:fx_balance", 0.8f}, {"2:level", 0.42f}, {"2:pan", 0.2f}, {nullptr, 0}}},
+    // DUAL: electric keys on top, slow strings swelling in under them.
+    {"keys and strings", "Both layers", {{"perf_mode", 1},
+        {"osc1_wave", 4}, {"osc2_wave", 0}, {"osc2_level", 0.5f}, {"osc2_tune", 7}, {"cutoff", 0.55f}, {"vcf_mod", 0.35f}, {"e1_decay", 0.45f},
+        {"e1_sustain", 0.2f}, {"e2_decay", 0.55f}, {"e2_sustain", 0.25f}, {"e2_release", 0.4f}, {"vel_vca", 0.5f}, {"ch_on", 1}, {"level", 0.6f},
+        {"2:detune", 0.55f}, {"2:osc2_level", 0.45f}, {"2:osc2_fine", 8}, {"2:cutoff", 0.4f}, {"2:e2_attack", 0.62f}, {"2:e2_sustain", 0.85f},
+        {"2:e2_release", 0.62f}, {"2:fx_send", 0.45f}, {"2:fx_balance", 0.85f}, {"2:level", 0.45f}, {nullptr, 0}}},
+    // SPLIT at G2: a round mono bass below, a short square stab with an echo above.
+    {"bass and stab", "Both layers", {{"perf_mode", 2}, {"perf_split", 55},
+        {"osc1_wave", 2}, {"osc2_level", 0.35f}, {"osc2_fine", 5}, {"cutoff", 0.5f}, {"vcf_mod", 0.5f}, {"e1_decay", 0.3f}, {"e1_sustain", 0.0f},
+        {"e2_decay", 0.32f}, {"e2_sustain", 0.0f}, {"e2_release", 0.28f}, {"fx_send", 0.35f}, {"dly_time", 7}, {"dly_fb", 0.35f}, {"fx_balance", 0.2f},
+        {"level", 0.6f},
+        {"2:octave", 1}, {"2:osc1_wave", 0}, {"2:osc2_wave", 2}, {"2:osc2_level", 0.4f}, {"2:cutoff", 0.3f}, {"2:resonance", 0.25f}, {"2:vcf_mod", 0.35f},
+        {"2:e1_decay", 0.4f}, {"2:e1_sustain", 0.2f}, {"2:voice_mode", 1}, {"2:glide", 0.1f}, {"2:level", 0.72f}, {nullptr, 0}}},
+    // DUAL: two legato leads an octave apart, gliding together, a little apart in pitch and place.
+    {"octave lead", "Both layers", {{"perf_mode", 1},
+        {"voice_mode", 2}, {"glide", 0.3f}, {"osc2_level", 0.5f}, {"osc2_fine", 7}, {"cutoff", 0.62f}, {"resonance", 0.2f}, {"vcf_mod", 0.3f},
+        {"e1_decay", 0.5f}, {"e1_sustain", 0.4f}, {"fx_send", 0.3f}, {"dly_time", 6}, {"dly_fb", 0.3f}, {"fx_balance", 0.35f}, {"level", 0.55f}, {"pan", -0.3f},
+        {"2:voice_mode", 2}, {"2:glide", 0.32f}, {"2:octave", 3}, {"2:osc1_wave", 3}, {"2:osc1_fine", 4}, {"2:cutoff", 0.58f}, {"2:vcf_mod", 0.3f},
+        {"2:e1_decay", 0.5f}, {"2:e1_sustain", 0.4f}, {"2:level", 0.42f}, {"2:pan", 0.3f}, {nullptr, 0}}},
+    // ROTATE: one note a pluck, the next a soft pad.
+    {"pluck and pad", "Both layers", {{"perf_mode", 4},
+        {"osc1_wave", 2}, {"cutoff", 0.5f}, {"vcf_mod", 0.55f}, {"e1_decay", 0.3f}, {"e1_sustain", 0.0f}, {"e2_decay", 0.35f}, {"e2_sustain", 0.0f},
+        {"e2_release", 0.35f}, {"fx_send", 0.35f}, {"fx_balance", 0.6f}, {"level", 0.6f}, {"pan", -0.35f},
+        {"2:detune", 0.45f}, {"2:osc2_level", 0.4f}, {"2:osc2_fine", 7}, {"2:cutoff", 0.42f}, {"2:e2_attack", 0.5f}, {"2:e2_release", 0.6f},
+        {"2:fx_send", 0.45f}, {"2:fx_balance", 0.85f}, {"2:level", 0.5f}, {"2:pan", 0.35f}, {nullptr, 0}}},
+    // DUAL: a unison saw on each side, tuned a hair apart: very wide.
+    {"wide unison", "Both layers", {{"perf_mode", 1},
+        {"voice_mode", 3}, {"unison", 1}, {"detune", 0.55f}, {"cutoff", 0.55f}, {"vcf_mod", 0.3f}, {"e2_attack", 0.15f}, {"e2_release", 0.4f},
+        {"level", 0.5f}, {"pan", -0.8f},
+        {"2:voice_mode", 3}, {"2:unison", 1}, {"2:detune", 0.6f}, {"2:osc1_fine", 9}, {"2:cutoff", 0.53f}, {"2:vcf_mod", 0.3f}, {"2:e2_attack", 0.18f},
+        {"2:e2_release", 0.42f}, {"2:level", 0.5f}, {"2:pan", 0.8f}, {nullptr, 0}}},
+    // DUAL: a synced bell on top of a vowel pad.
+    {"bell over choir", "Both layers", {{"perf_mode", 1},
+        {"osc1_wave", 0}, {"osc2_wave", 0}, {"sync", 1}, {"osc2_tune", 7}, {"osc2_level", 0.55f}, {"cutoff", 0.7f}, {"e1_decay", 0.4f},
+        {"e2_decay", 0.6f}, {"e2_sustain", 0.0f}, {"e2_release", 0.55f}, {"fx_send", 0.45f}, {"fx_balance", 0.8f}, {"level", 0.45f},
+        {"2:osc1_wave", 6}, {"2:osc1_alt1", 4}, {"2:osc2_level", 0.35f}, {"2:osc2_fine", 6}, {"2:cutoff", 0.5f}, {"2:e2_attack", 0.55f},
+        {"2:e2_release", 0.6f}, {"2:fx_send", 0.45f}, {"2:fx_balance", 0.85f}, {"2:level", 0.5f}, {nullptr, 0}}},
+    // RANDOM: each note one of two organ registrations, about half and half.
+    {"two organs", "Both layers", {{"perf_mode", 5}, {"perf_odds", 3},
+        {"osc1_wave", 6}, {"osc1_alt1", 0}, {"osc2_wave", 0}, {"osc2_tune", 7}, {"osc2_level", 0.4f}, {"cutoff", 0.75f}, {"e2_attack", 0.02f},
+        {"e2_release", 0.15f}, {"ch_on", 1}, {"level", 0.55f}, {"pan", -0.2f},
+        {"2:osc1_wave", 6}, {"2:osc1_alt1", 1}, {"2:osc2_wave", 4}, {"2:octave", 3}, {"2:osc2_level", 0.3f}, {"2:cutoff", 0.7f}, {"2:e2_attack", 0.02f},
+        {"2:e2_release", 0.15f}, {"2:level", 0.5f}, {"2:pan", 0.2f}, {nullptr, 0}}},
+    // ---- Bank J: one layer through the other, and things that move.
+    // CASCADE: layer 1's saws played through layer 2's resonant filter and its snappy envelope.
+    {"cascade acid", "Both layers", {{"perf_mode", 7},
+        {"osc2_level", 0.4f}, {"osc2_fine", 5}, {"cutoff", 1.0f}, {"e2_release", 0.25f}, {"level", 0.8f},
+        {"2:osc1_level", 0.0f}, {"2:ext_level", 0.85f}, {"2:cutoff", 0.3f}, {"2:resonance", 0.65f}, {"2:vcf_mod", 0.6f}, {"2:e1_decay", 0.3f},
+        {"2:e1_sustain", 0.05f}, {"2:voice_mode", 1}, {"2:glide", 0.12f}, {"2:fx_send", 0.25f}, {"2:dly_time", 7}, {"2:dly_fb", 0.3f},
+        {"2:fx_balance", 0.25f}, {"2:level", 0.85f}, {nullptr, 0}}},
+    // CASCADE: layer 1's pad through layer 2's phaser and low pass, swept slowly by its LFO.
+    {"cascade phaser", "Both layers", {{"perf_mode", 7},
+        {"detune", 0.5f}, {"osc2_level", 0.45f}, {"osc2_fine", 7}, {"cutoff", 0.9f}, {"e2_attack", 0.35f}, {"e2_release", 0.55f}, {"level", 0.8f},
+        {"2:osc1_level", 0.0f}, {"2:ext_level", 0.8f}, {"2:route", 2}, {"2:type_ser", 0}, {"2:cutoff", 0.5f}, {"2:resonance", 0.3f}, {"2:vcf_src", 1},
+        {"2:vcf_mod", 0.45f}, {"2:lfo1_rate", 0.25f}, {"2:e2_attack", 0.4f}, {"2:e2_release", 0.6f}, {"2:fx_send", 0.4f}, {"2:fx_balance", 0.8f},
+        {"2:level", 0.55f}, {nullptr, 0}}},
+    // SPLIT at C3: a held bass below; above, sixteenths going up.
+    {"bass under arp", "Both layers", {{"perf_mode", 2}, {"perf_split", 60},
+        {"arp_on", 1}, {"arp_div", 4}, {"arp_gate", 0.45f}, {"osc1_wave", 3}, {"cutoff", 0.52f}, {"vcf_mod", 0.45f}, {"e1_decay", 0.3f},
+        {"e2_decay", 0.35f}, {"e2_sustain", 0.0f}, {"e2_release", 0.3f}, {"fx_send", 0.3f}, {"dly_time", 6}, {"dly_fb", 0.35f}, {"fx_balance", 0.3f},
+        {"level", 0.55f},
+        {"2:octave", 1}, {"2:osc2_wave", 2}, {"2:osc2_level", 0.45f}, {"2:cutoff", 0.35f}, {"2:resonance", 0.3f}, {"2:vcf_mod", 0.3f},
+        {"2:e1_decay", 0.55f}, {"2:e1_sustain", 0.4f}, {"2:voice_mode", 1}, {"2:level", 0.7f}, {nullptr, 0}}},
+    // DUAL: two arpeggios, eighths up in pulses, triplet eighths down in sines.
+    {"crossing arps", "Both layers", {{"perf_mode", 1},
+        {"arp_on", 1}, {"arp_div", 3}, {"arp_range", 1}, {"arp_gate", 0.5f}, {"osc1_wave", 3}, {"cutoff", 0.5f}, {"vcf_mod", 0.45f},
+        {"e1_decay", 0.3f}, {"e2_decay", 0.35f}, {"e2_sustain", 0.0f}, {"e2_release", 0.3f}, {"pan", -0.45f}, {"level", 0.55f},
+        {"2:arp_on", 1}, {"2:arp_mode", 1}, {"2:arp_div", 7}, {"2:arp_range", 2}, {"2:arp_gate", 0.5f}, {"2:osc1_wave", 0}, {"2:octave", 3},
+        {"2:e2_decay", 0.4f}, {"2:e2_sustain", 0.0f}, {"2:e2_release", 0.35f}, {"2:pan", 0.45f}, {"2:fx_send", 0.35f}, {"2:dly_time", 7},
+        {"2:dly_fb", 0.35f}, {"2:fx_balance", 0.3f}, {"2:level", 0.5f}, {nullptr, 0}}},
+    // ONE-TWO: the first key a slow pad; the keys played over it a lead.
+    {"pad then lead", "Both layers", {{"perf_mode", 3},
+        {"detune", 0.5f}, {"osc2_level", 0.4f}, {"osc2_fine", 6}, {"cutoff", 0.42f}, {"e2_attack", 0.5f}, {"e2_release", 0.6f}, {"fx_send", 0.4f},
+        {"fx_balance", 0.85f}, {"level", 0.5f},
+        {"2:voice_mode", 2}, {"2:glide", 0.2f}, {"2:osc1_wave", 3}, {"2:octave", 3}, {"2:cutoff", 0.6f}, {"2:resonance", 0.2f}, {"2:vcf_mod", 0.3f},
+        {"2:e1_decay", 0.5f}, {"2:e1_sustain", 0.4f}, {"2:fx_send", 0.3f}, {"2:dly_time", 6}, {"2:dly_fb", 0.3f}, {"2:fx_balance", 0.35f},
+        {"2:level", 0.5f}, {nullptr, 0}}},
+    // CHAOS: glassy bells, with fifths and octaves thrown in.
+    {"chaos bells", "Both layers", {{"perf_mode", 6}, {"perf_5up", 2}, {"perf_8up", 2},
+        {"osc1_wave", 0}, {"osc2_wave", 0}, {"osc2_tune", 7}, {"osc2_level", 0.5f}, {"pitch_src", 2}, {"pitch_mod", 0.35f}, {"cutoff", 0.7f},
+        {"e2_decay", 0.55f}, {"e2_sustain", 0.0f}, {"e2_release", 0.5f}, {"fx_send", 0.45f}, {"fx_balance", 0.75f}, {"pan", -0.35f}, {"level", 0.5f},
+        {"2:osc1_wave", 4}, {"2:octave", 3}, {"2:cutoff", 0.65f}, {"2:e2_decay", 0.5f}, {"2:e2_sustain", 0.0f}, {"2:e2_release", 0.5f},
+        {"2:fx_send", 0.45f}, {"2:fx_balance", 0.8f}, {"2:pan", 0.35f}, {"2:level", 0.45f}, {nullptr, 0}}},
+    // DUAL: a mono lead over a drone on C2 that opens and closes slowly by itself.
+    {"lead over drone", "Both layers", {{"perf_mode", 1},
+        {"voice_mode", 2}, {"glide", 0.2f}, {"osc2_level", 0.45f}, {"osc2_fine", 6}, {"cutoff", 0.6f}, {"vcf_mod", 0.3f}, {"e1_decay", 0.5f},
+        {"e1_sustain", 0.4f}, {"fx_send", 0.3f}, {"dly_time", 7}, {"dly_fb", 0.35f}, {"fx_balance", 0.35f}, {"level", 0.55f},
+        {"2:osc1_level", 0.0f}, {"2:osc2_wave", 10}, {"2:osc2_level", 0.7f}, {"2:cutoff", 0.35f}, {"2:resonance", 0.35f}, {"2:vcf_src", 1},
+        {"2:vcf_mod", 0.4f}, {"2:lfo1_rate", 0.2f}, {"2:e2_attack", 0.55f}, {"2:e2_release", 0.6f}, {"2:fx_send", 0.4f}, {"2:fx_balance", 0.85f},
+        {"2:level", 0.45f}, {nullptr, 0}}},
+    // DUAL: two slow pads, their filters drifting apart and back, one on each side.
+    {"slow motion", "Both layers", {{"perf_mode", 1},
+        {"detune", 0.45f}, {"osc2_level", 0.4f}, {"osc2_fine", 7}, {"route", 1}, {"cutoff", 0.45f}, {"delta", 0.3f}, {"lfo2_rate", 0.2f},
+        {"lfo2_vcf", 0.25f}, {"e2_attack", 0.6f}, {"e2_release", 0.65f}, {"fx_send", 0.45f}, {"fx_balance", 0.85f}, {"level", 0.48f}, {"pan", -0.55f},
+        {"2:detune", 0.5f}, {"2:osc1_wave", 3}, {"2:osc2_level", 0.4f}, {"2:osc2_fine", -7}, {"2:route", 1}, {"2:cutoff", 0.42f}, {"2:delta", -0.3f},
+        {"2:lfo2_rate", 0.17f}, {"2:lfo2_vcf", 0.25f}, {"2:e2_attack", 0.62f}, {"2:e2_release", 0.65f}, {"2:fx_send", 0.45f}, {"2:fx_balance", 0.85f},
+        {"2:level", 0.48f}, {"2:pan", 0.55f}, {nullptr, 0}}},
 };
 constexpr int kNumFactory = int(sizeof(kFactory) / sizeof(kFactory[0]));
 

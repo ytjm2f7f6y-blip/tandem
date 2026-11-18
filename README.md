@@ -12,14 +12,19 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 ## Playing it
 
 - **A sound on each layer.** The two windows at the top name the patch on each layer.
-  Click a name for the list (by kind: basses, leads, pads, keys, plucks, arps, effects,
-  yours; or either layer of a two-layer sound) and choose what goes on that layer; the
-  arrows at each end, or scrolling over it, step through them. Any patch can go on
-  either layer: a bass on layer 1, a pad on layer 2, then PLAY MODE decides how they
-  share the keys. A `*` means that layer has been changed since it was chosen.
+  Click a name to open that layer's sound browser: kinds on the left (basses, leads,
+  pads, keys, plucks, arps, effects, two-layer sounds, yours, favourites), the sounds on
+  the right. A click plays one on the layer straight away; double-click or Enter keeps
+  it and closes the browser. Type to search, star a sound to add it to Favourites, and
+  use the arrow keys to walk through the list. The arrows at each end of the window, or
+  scrolling over it, step through the sounds without opening it; right-click it for
+  writing, copying and swapping. Any patch can go on either layer, including either
+  layer of a two-layer sound. A `*` means the layer has been changed since it was chosen.
 - **Two layers.** LAYER 1 and LAYER 2 choose which layer the panel edits: the top row,
   the arpeggiator, DICE and VARY, the effects and the display's pages (their title says
-  L1 or L2). Each layer keeps its own voice mode row, voice lamps and mixer column, live
+  L1 or L2). It's hard to miss: the edited layer's window is lit and has a lamp beside
+  it (click a layer's number or lamp to edit it), and every box that shows the edited
+  layer says LAYER 1 or LAYER 2 at the end of its header (amber for layer 2). Each layer keeps its own voice mode row, voice lamps and mixer column, live
   whichever you edit. SHIFT + LAYER 1 swaps the layers; SHIFT + LAYER 2 copies the one
   you are editing onto the other.
 - **Top row:** the sound of the layer you are editing (oscillators, mixer, filter,
@@ -60,14 +65,16 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 - **The arpeggiators:** each layer has its own. ON, HOLD (the arpeggio plays on after
   you let go, until the next chord; with the arpeggiator off it holds the notes), MODE
   (up, down, up + down, up & down, random, as played, chord) and RANGE (one to four
-  octaves); the ARP pages add the division (1/1 to 1/32, and triplets), swing and gate.
+  octaves); the window under them shows the mode, range and division (click a part to
+  step it, right-click for its list); the ARP pages add swing and gate.
   Both run on one clock: with HOST lit, Logic's tempo, and its beat while it plays, so
   arpeggios land on the bar; otherwise TEMPO, or TAP (tapping takes the clock from
   Logic). TAP's lamp flashes on the beat; ON's beats while its arpeggio plays.
-- **The side chain (EXT IN)** is built but switched off in this build: giving Tandem an
-  input bus left it silent in Logic, so the plugin has none for now (`-DTD_SIDECHAIN=ON`
-  builds it with one). With it, layer 1's EXT IN knob feeds the side chain into its
-  filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
+- **The side chain (EXT IN)** is switched off in Tandem itself: giving it an input bus
+  left it silent in Logic. Layer 1's EXT IN knob is greyed out while it does nothing.
+  **Tandem SC**, installed beside it, is the same synth with the input on from the start
+  (a different way of declaring it): a test, so try it in Logic and see whether it plays.
+  With a side chain, layer 1's EXT IN knob feeds it into its filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
   matrix source on both layers, and with the VCA on GATE it opens and closes the VCA.
   Layer 2's EXT IN knob is CASCADE's level, and works.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
@@ -115,7 +122,8 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 | --- | --- | --- |
 | 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
 | 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | done |
-| 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer, your own single-cycle waves (eight, kept with the session and with saved sounds), a matrix overview you can edit directly | **this build** |
+| 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer, your own single-cycle waves (eight, kept with the session and with saved sounds), a matrix overview you can edit directly | done |
+| 4 | A layout pass checked by a script (every label clear of the box edges, captions in a row on one line), a 25% bigger display, bigger layer windows with a sound browser (kinds, search, favourites), a clear mark of the edited layer, the arpeggiator's settings in a window, filter types spelled out, EXT IN greyed when it does nothing, 25-30% less CPU per voice (the sound unchanged, bit for bit), 16 more two-layer sounds (80 in all), and Tandem SC to test the side chain | **this build** |
 
 ## Installing
 
@@ -125,6 +133,7 @@ image, quit Logic, and in Terminal run:
     bash "$(ls -td /Volumes/tandem*/ | head -1)install.sh"
 
 Then, on a Software Instrument track: AU Instruments > Rumpus Room Records > Tandem.
+(Tandem SC, the side chain test, is beside it.)
 
 ## The sound engine
 

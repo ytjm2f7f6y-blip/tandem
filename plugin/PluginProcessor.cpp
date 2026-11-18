@@ -6,7 +6,9 @@
 
 juce::AudioProcessor::BusesProperties TandemProcessor::buses() {
     auto b = BusesProperties();
-   #if TD_SIDECHAIN
+   #if TD_SIDECHAIN && TD_SIDECHAIN_ON
+    b = b.withInput("Side Chain", juce::AudioChannelSet::stereo(), true);      // the EXT IN: on from the start (Tandem SC)
+   #elif TD_SIDECHAIN
     b = b.withInput("Side Chain", juce::AudioChannelSet::stereo(), false);     // the EXT IN: off until the host routes one in
    #endif
     return b.withOutput("Output", juce::AudioChannelSet::stereo(), true);

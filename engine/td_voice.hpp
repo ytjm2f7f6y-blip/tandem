@@ -280,6 +280,13 @@ struct Voice {
         FilterCore fa, fb;
         uint32_t hfPh = 0;
         Rng rng;
+        // Last sample's pitch and table levels: most samples repeat them, and working them out again is
+        // most of an oscillator's cost. (A cache only: the sound is the same, bit for bit.)
+        float cSemis[2] = {-1e9f, -1e9f}, cInvFs[2] = {0, 0}, cInc[2] = {0, 0};
+        float cLvlInc[2][7] = {{-1, -1, -1, -1, -1, -1, -1}, {-1, -1, -1, -1, -1, -1, -1}};
+        int cLvl[2][7] = {};
+        float cOct[2] = {-1e9f, -1e9f}, cFs[2] = {0, 0}, cG[2] = {0, 0}, cGh[2] = {0, 0};     // each filter core's last tuning
+        bool cT1[2] = {false, false};
         void reset() { fa.reset(); fb.reset(); std::memset(ring, 0, sizeof ring); last[0] = last[1] = 0; noiseLp[0] = noiseLp[1] = 0; }
     } ear[2];
     EarSet set[2];
@@ -549,7 +556,11 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
             for (int o = 0; o < 2; ++o) {
                 const OscCfg& oc = c.osc[o];
                 float semis = (oc.drone ? 36.0f : basePitch) + oc.tuneSemis + (oc.pitchMod ? pmSemis : 0.0f);
-                incBase[o] = 440.0f * exp2Fast((semis - 69.0f) * (1.0f / 12.0f)) * invFs;
+                if (semis != E.cSemis[o] || invFs != E.cInvFs[o]) {
+                    E.cSemis[o] = semis; E.cInvFs[o] = invFs;
+                    E.cInc[o] = 440.0f * exp2Fast((semis - 69.0f) * (1.0f / 12.0f)) * invFs;
+                }
+                incBase[o] = E.cInc[o];
             }
             // Cross modulation (linear, through zero): the other oscillator's last output.
             float fm[2] = {0, 0};
@@ -615,7 +626,9 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
                         const int32_t incI = int32_t(inc * 4294967296.0f);
                         const uint32_t old = E.ph[o][k];
                         uint32_t ph = old + uint32_t(incI);
-                        const int lvl = levelFor(std::abs(inc));
+                        const float aInc = std::abs(inc);
+                        if (aInc != E.cLvlInc[o][k]) { E.cLvlInc[o][k] = aInc; E.cLvl[o][k] = levelFor(aInc); }
+                        const int lvl = E.cLvl[o][k];
                         auto val = [&](uint32_t q) -> float {
                             if (oc.kind == 1) {
                                 const float* t = oc.a->level(lvl);
@@ -720,23 +733,29 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
             const bool t1 = c.lfComp > 0.0f;
             const float kUse = t1 ? kRes * kType1Gain : kRes;
             float ghA = 0.0f, ghB = 0.0f;
-            auto gOf = [&](float oct, float& gh) {
+            auto gOf = [&](float oct, float& gh, int core) {
+                if (oct == E.cOct[core] && invFs == E.cFs[core] && t1 == E.cT1[core]) {      // tuned as last sample: as it was
+                    if (t1) gh = E.cGh[core];
+                    return E.cG[core];
+                }
                 float hz = 16.0f * exp2Fast(clampf(oct, -1.0f, 11.5f));
                 if (t1) {
                     hz *= kType1Tune;
                     gh = tanPade(float(kPi) * std::min(0.25f * hz * invFs, 0.42f));
                 }
-                return tanPade(float(kPi) * std::min(hz * invFs, 0.42f));
+                const float g = tanPade(float(kPi) * std::min(hz * invFs, 0.42f));
+                E.cOct[core] = oct; E.cFs[core] = invFs; E.cT1[core] = t1; E.cG[core] = g; E.cGh[core] = t1 ? gh : 0.0f;
+                return g;
             };
             float y;
             if (c.route == kRouteStereo) {
-                const float g = gOf(cutOct + (e == 0 ? delta : -delta), ghA);
+                const float g = gOf(cutOct + (e == 0 ? delta : -delta), ghA, 0);
                 y = E.fa.process(x, g, kUse, ghA, c.mixA);
             } else if (c.route == kRouteParallel) {
-                const float ga = gOf(cutOct + delta, ghA), gb = gOf(cutOct - delta, ghB);
+                const float ga = gOf(cutOct + delta, ghA, 0), gb = gOf(cutOct - delta, ghB, 1);
                 y = 0.5f * (E.fa.process(x, ga, kUse, ghA, c.mixA) + E.fb.process(x, gb, kUse, ghB, c.mixB));
             } else {
-                const float ga = gOf(cutOct + delta, ghA), gb = gOf(cutOct - delta, ghB);
+                const float ga = gOf(cutOct + delta, ghA, 0), gb = gOf(cutOct - delta, ghB, 1);
                 const float ya = E.fa.process(x, ga, kUse, ghA, c.mixA);
                 y = E.fb.process(ya, gb, kUse, ghB, c.mixB);
             }

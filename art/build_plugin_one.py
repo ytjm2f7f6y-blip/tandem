@@ -246,6 +246,22 @@ def header():
     w(f"constexpr float kEncX[4] = {{{', '.join(f(x) for x in L.ENC_X)}}};   // the display's columns sit over these")
     tx, ty, tw, th = face(L.TYPE_WIN)
     w(f"constexpr float kTypeX = {f(tx)}, kTypeY = {f(ty)}, kTypeW = {f(tw)}, kTypeH = {f(th)};")
+    ax, ay, aw, ah = face(L.ARP_WIN)
+    w("// The arpeggiator's window: mode, range, division.")
+    w(f"constexpr float kArpWinX = {f(ax)}, kArpWinY = {f(ay)}, kArpWinW = {f(aw)}, kArpWinH = {f(ah)};")
+    w("// Where the plugin marks the edited layer on the header bars of the boxes that show it: right of the")
+    w("// printed title, as \"LAYER n\" where it fits, \"Ln\" where only that fits (w 0: no room).")
+    import make_textures as MT
+    f_head = MT.font(MT.LEGEND_BOLD, L.TYPE["head"])
+    lb = [b_ for b_ in L.BOXES if b_[0] in ("osc", "mix", "vcf", "lfo", "env", "arp", "fx")]
+    marks = []
+    for bid, title, x0, x1, (y0, y1) in lb:
+        tw = (sum(f_head.getlength(ch) for ch in title) + 0.22 * f_head.size * (len(title) - 1)) / MT.TEX
+        free = x1 - 6 - ((x0 + x1) / 2 + tw / 2 + 8)
+        mw = 52.0 if free >= 52 else (24.0 if free >= 24 else 0.0)
+        marks.append((x1 - 6 - mw, y0 + 4, mw, L.HEAD_H - 8))
+    w(f"constexpr int kNumLayerBoxes = {len(lb)};")
+    w("constexpr float kLayerMark[kNumLayerBoxes][4] = {" + ", ".join("{" + ", ".join(f(v) for v in m) + "}" for m in marks) + "};")
     w("// Each layer's patch window (its glass).")
     pw = [face(p_) for p_ in L.PATCH_WINS]
     w("constexpr float kPatchWin[2][4] = {" + ", ".join("{" + ", ".join(f(v) for v in r) + "}" for r in pw) + "};")
@@ -257,7 +273,7 @@ def header():
 
     def esc(s):
         return s.replace("\\", "\\\\").replace('"', '\\"')
-    ids = {c["id"] for c in L.CONTROLS} | {"f_type", "disp"}
+    ids = {c["id"] for c in L.CONTROLS} | {"f_type", "disp", "arp_win"}
     missing = sorted(i for i in ids if i not in HELP.HELP and i.rsplit("_", 1)[0] not in HELP.HELP)   # a family: vm1_0 -> vm1
     if missing:
         print("no help for:", ", ".join(missing))

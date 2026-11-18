@@ -209,6 +209,9 @@ def build():
         R.place(R.screw((i * 61 + 20) % 180), x, y, Z + 4.6)
     TW = L.TYPE_WIN
     R.place(R.display_box(TW["w"], TW["h"], "ftype", show=None if STATE else "type_show.png"), TW["x"], TW["y"], Z)
+    if hasattr(L, "ARP_WIN"):                                       # the arpeggiator's settings, written by the plugin
+        AW = L.ARP_WIN
+        R.place(R.display_box(AW["w"], AW["h"], "arpwin", show=None), AW["x"], AW["y"], Z)
     for i, PW in enumerate(getattr(L, "PATCH_WINS", [])):          # each layer's sound, by name
         R.place(R.display_box(PW["w"], PW["h"], f"patch{i}", show=None if STATE else f"patch_show_{i}.png"), PW["x"], PW["y"], Z)
 

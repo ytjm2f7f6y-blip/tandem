@@ -74,15 +74,16 @@ juce::String busInfo(juce::AudioPluginInstance& p) {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI gui;
     juce::AudioUnitPluginFormat format;
     juce::OwnedArray<juce::PluginDescription> found;
-    format.findAllTypesForFile(found, "AudioUnit:Synths/aumu,Tndm,SamP");
+    const juce::String code = argc > 1 ? argv[1] : "Tndm";          // au_host TnSC: Tandem SC, the side chain test
+    format.findAllTypesForFile(found, "AudioUnit:Synths/aumu," + code + ",SamP");
     if (found.isEmpty())
         for (const auto& id : format.searchPathsForPlugins({}, false, false))
-            if (id.contains("Tndm")) format.findAllTypesForFile(found, id);
-    check(!found.isEmpty(), "the system finds Tandem (aumu Tndm SamP)");
+            if (id.contains(code)) format.findAllTypesForFile(found, id);
+    check(!found.isEmpty(), "the system finds it (aumu " + code + " SamP)");
     if (found.isEmpty()) return 1;
     const double sr = 48000.0;
     juce::String error;

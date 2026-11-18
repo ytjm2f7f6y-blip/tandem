@@ -73,6 +73,7 @@ public:
     std::vector<int> layerPatches() const;           // the one-layer sounds, in list order (indices into presetList())
     juce::String layerName(int layer) const { return layerName_[size_t(layer & 1)]; }
     int layerIndex(int layer) const { return layerIndex_[size_t(layer & 1)]; }
+    int layerPart(int layer) const { return layerPart_[size_t(layer & 1)]; }       // which layer of a two-layer sound it came from
     bool layerEdited(int layer) const;
     juce::String saveLayerPatch(const juce::String& name, int layer);
     bool deleteUserPreset(int index);
