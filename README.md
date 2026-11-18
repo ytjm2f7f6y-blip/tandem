@@ -4,12 +4,19 @@ A two-layer synthesizer by Rumpus Room Records for Logic, worked out from the ow
 manual of a modern bi-timbral hybrid synth (two independent 4-voice modules, super
 oscillators, a dual-core stereo filter and a binaural signal path). One baby-blue
 powder-coated panel with navy screen printing, black knobs with a coloured cap for
-each section, push keys with lamps, and an amber display with four encoders.
+each section, push keys with lamps, and an amber display. At 100% it is 1460 × 800
+points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 
 ![Tandem's panel](docs/panel.jpg)
 
 ## Playing it
 
+- **A sound on each layer.** The two windows at the top name the patch on each layer.
+  Click a name for the list (by kind: basses, leads, pads, keys, plucks, arps, effects,
+  yours; or either layer of a two-layer sound) and choose what goes on that layer; the
+  arrows at each end, or scrolling over it, step through them. Any patch can go on
+  either layer: a bass on layer 1, a pad on layer 2, then PLAY MODE decides how they
+  share the keys. A `*` means that layer has been changed since it was chosen.
 - **Two layers.** LAYER 1 and LAYER 2 choose which layer the panel edits: the top row,
   the arpeggiator, DICE and VARY, the effects and the display's pages (their title says
   L1 or L2). Each layer keeps its own voice mode row, voice lamps and mixer column, live
@@ -24,7 +31,18 @@ each section, push keys with lamps, and an amber display with four encoders.
   rings** (waveforms, octave): click a lamp, click the knob to step, or drag.
 - **Right-click** any control for its menu: its page, back to its default, set it to,
   and for knobs the matrix can move, *Modulate from* and *Clear its modulation*.
-- **Undo and redo:** SHIFT + the page arrows, or Cmd-Z and Shift-Cmd-Z.
+- **Your own waves.** Right-click a waveform ring (OSC 1, OSC 2 or LFO 1), or a wave
+  slot on the VOICE pages, and choose *Import a wave into this slot...*: a WAV, AIFF or
+  FLAC of one cycle (up to 8192 points; a wavetable of 2048-point frames gives its
+  first). Tandem centres it, scales it to full level and band-limits it like its own
+  waves. Eight of yours (U1-U8) sit after Tandem's 32 in every slot's list, by name.
+  They are kept with the Logic session, and a patch or performance you write carries
+  the waves it uses, so it plays the same on another Mac. Loading one never overwrites
+  a wave the other layer is using: the new one takes the next free slot.
+- **The matrix at a glance** (the MOD menu's first page): drag a line, or scroll over
+  it, to change its amount; click it for its slot's page; right-click it to zero or
+  flip the amount, copy the slot to the other layer, or clear it.
+- **Undo and redo:** the UNDO and REDO keys, or Cmd-Z and Shift-Cmd-Z.
 - **Keyboard and VoiceOver:** Tab moves through the controls in panel order (an amber
   outline shows where you are); the arrow keys change the one in focus, Shift for fine,
   Space presses a key, Delete returns it to its default. VoiceOver reads each control's
@@ -53,12 +71,13 @@ each section, push keys with lamps, and an amber display with four encoders.
   matrix source on both layers, and with the VCA on GATE it opens and closes the VCA.
   Layer 2's EXT IN knob is CASCADE's level, and works.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
-  or use the PAGE arrows, for the next page; click the title for a list of the pages). The four encoders, or dragging a column,
-  change the four values above them. Touch any control and it shows its value.
+  or use the PAGE arrows, for the next page; click the title for a list of the pages).
+  Drag a column up or down, or scroll over it, to change that value; click a list to
+  step it. Touch any control and it shows its value.
 - **SHIFT:** click it, then touch a control, to open that control's page (SHIFT +
   CUTOFF: the filter routing, type, resonance type and keytrack; SHIFT + VCA: envelope
-  3). The red legends are SHIFT's own jobs: SHIFT + a patch key picks the bank,
-  SHIFT + COMPARE starts from a blank patch, SHIFT + the page arrows undo and redo.
+  3). The red legends are SHIFT's own jobs: SWAP and COPY on the layer keys, ZONES on
+  PLAY MODE, DIVISION on TAP, INIT on COMPARE (a blank patch), NAME on WRITE.
 - **The mod matrix** opens on an overview of every slot in use (click one to open it),
   then has twelve slots, one per MOD page: SOURCE, DEST, AMOUNT, and VIA (a
   second source that scales the amount: put the mod wheel there and it brings the
@@ -73,19 +92,19 @@ each section, push keys with lamps, and an amber display with four encoders.
   page) a cycle of 1 to 8 values that starts again after a second's pause.
 - **VOICE MODE** (in PERFORMANCE): a key per layer steps poly, solo, legato, unison and
   poly 2; the lamps show each layer's mode, and you can click a lamp. The **voice lamps**
-  in LAYER MIX light while each voice sounds, brighter as it plays louder.
+  in MIX light while each voice sounds, brighter as it plays louder.
 - **DICE and VARY** (in the arpeggiator box): DICE rolls a pattern of small differences
   (velocity, envelope times, brightness; past 7 on VARY, the odd octave) that steps on
   with each note; VARY sets how much you hear, from none at 0. The roll is saved with the
   patch, and a second's pause starts the pattern again, so a phrase varies the same way
   each time.
-- **Patches:** eight keys and eight banks of factory sounds: A to F play one layer
-  (basses, leads, pads, keys, plucks, effects); G uses both layers and the play modes,
-  H the arpeggiators. SHIFT + the same bank key again reaches your own patches. Right-click a patch key (or click the top
-  line of the display) for the whole list. WRITE saves the sound as one of yours
-  (in Music / Rumpus Room Records / Tandem / Presets); its lamp blinks when the patch
-  has been changed. COMPARE flips between the patch as edited and as stored.
-- **SETUP** opens a drawer under the front edge: master tune, transpose, velocity and
+- **Sounds:** 48 one-layer patches (basses, leads, pads, keys, plucks, effects) and 16
+  two-layer performances that show off the play modes and arpeggiators. Click the name
+  on the right of the display's top line for whole sounds. WRITE saves one layer as a
+  patch (to put on either layer later) or both layers as a performance, in Music /
+  Rumpus Room Records / Tandem / Presets; its lamp blinks when something has changed.
+  COMPARE flips between the sound as edited and as it was chosen.
+- **SETUP** slides a drawer up over the bottom row: master tune, transpose, velocity and
   pressure response, MIDI channel per layer, sustain pedal polarity, AGE (how much
   every patch drifts) and the panel's size.
 - Hover over anything for a note on what it does.
@@ -95,8 +114,8 @@ each section, push keys with lamps, and an amber display with four encoders.
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
-| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | **this build** |
-| 3 | Importing your own single-cycle waves, matrix polish, more presets, final-quality render | to do |
+| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | done |
+| 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer, your own single-cycle waves (eight, kept with the session and with saved sounds), a matrix overview you can edit directly | **this build** |
 
 ## Installing
 
@@ -128,8 +147,8 @@ the next (sine to saw, saw to square, triangle to saw, an alternative wave to th
 next slot). OSC 2's last three positions are drones on C2.
 
 There are 32 alternative waves of Tandem's own (organs, vowels, synced and FM shapes,
-folded and clipped sines, and more). The hardware's own waves are not in its manual,
-so none of them are copied.
+folded and clipped sines, and more), and room for eight of yours. The hardware's own
+waves are not in its manual, so none of them are copied.
 
 **Filter.** Each voice has two filter cores. Each core is four OTA one-pole stages in a
 loop, solved without a unit delay, with a saturating input stage. Low, high and band

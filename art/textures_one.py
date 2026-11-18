@@ -158,7 +158,7 @@ def navy_and_shift():
                 for k, s in ((0, "0"), (5, "5"), (10, "10")):
                     yy = bot - (bot - top) * k / 10
                     d.text((P(x - L.FADER_PLATE_W / 2 - 7.5), P(yy)), s, font=f_num, fill=255, anchor="rm")
-            text(d, (x, bot + 22), c["name"], f_name)
+            text(d, (x, bot + 28), c["name"], f_name)
         elif t == "key":
             if c.get("lamps"):
                 ly = L.lamp_y(c)
@@ -195,7 +195,7 @@ def navy_and_shift():
     for i, x in enumerate(L.MIXC):
         text(d, (x, L.MIX_HEAD_Y), "LAYER " + str(i + 1), f_name, spacing=0.08)
     lx, ly = L.PLAY_LEGEND_XY
-    f_leg, f_legn = F(MED, 8.0), F(BOLD, 8.0)
+    f_leg, f_legn = F(MED, 8.8), F(BOLD, 8.8)
     for i, s in enumerate(L.PLAY_MODES):
         yy = ly + i * L.PLAY_LEGEND_STEP
         d.text((P(lx), P(yy)), str(i + 1), font=f_legn, fill=255, anchor="lm")
@@ -240,7 +240,7 @@ def drawer_ink():
     if L.DRAWER_OPEN:
         d = ImageDraw.Draw(im)
         dr = L.DRAWER
-        f_name, f_num, f_lamp, f_head = F(BOLD, 8.6), F(LEG, 8.0), F(MED, 8.0), F(BOLD, 8.4)
+        f_name, f_num, f_lamp, f_head = F(BOLD, 9.6), F(LEG, 8.8), F(MED, 8.8), F(BOLD, 9.2)
         text(d, (dr["x0"] + 20, dr["y0"] + 18), "SETUP  ·  SET ONCE, FORGET", f_head, anchor="lm", spacing=0.16)
         d.line([(P(dr["x0"] + 20), P(dr["y0"] + 27)), (P(dr["x1"] - 20), P(dr["y0"] + 27))], fill=255, width=int(0.6 * TEX))
         for c in L.CONTROLS:
@@ -292,6 +292,20 @@ def display_mask(spec, path):
     ImageChops.lighter(im, glow).save(path)
 
 
+def patch_masks():
+    S = 8
+    for i, (PW, name) in enumerate(zip(getattr(L, "PATCH_WINS", []), getattr(L, "PATCH_SHOW", []))):
+        tw, th = PW["w"] - 9, PW["h"] - 9
+        im = Image.new("L", (int(tw * S), int(th * S)), 0)
+        dd = ImageDraw.Draw(im)
+        dd.text((tw * S / 2, th * S / 2), name, font=MT.font_px(BOLD, 12.0 * S), fill=255, anchor="mm")
+        for sgn in (-1, 1):                     # the step arrows at each end
+            cx, cy, a = (tw / 2 + sgn * (tw / 2 - 9)) * S, th * S / 2, 3.2 * S
+            dd.polygon([(cx + sgn * a, cy), (cx - sgn * a * 0.7, cy - a), (cx - sgn * a * 0.7, cy + a)], fill=200)
+        im = im.filter(ImageFilter.GaussianBlur(0.5 * S / 4))
+        ImageChops.lighter(im, im.filter(ImageFilter.GaussianBlur(2 * S / 4)).point(lambda v: int(v * 0.5))).save(os.path.join(OUT, f"patch_show_{i}.png"))
+
+
 def type_mask():
     S = 8
     T = L.TYPE_WIN
@@ -310,6 +324,7 @@ if __name__ == "__main__":
     for name, spec in L.DISPLAY_PAGES.items():
         display_mask(spec, os.path.join(OUT, f"display_{name}.png"))
     type_mask()
+    patch_masks()
     # Previews of the print, for checking: navy, shift and stripes over powder blue.
     base = Image.new("RGB", (W, H), (153, 196, 224))
     for name, col in (("legend_ink.png", (18, 28, 46)), ("shift_ink.png", (199, 66, 26))):

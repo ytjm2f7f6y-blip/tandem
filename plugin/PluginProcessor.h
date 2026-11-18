@@ -57,20 +57,40 @@ public:
     static void set(juce::RangedAudioParameter* p, float value);      // in the parameter's own units, host told
 
     // ---- presets: factory, then the person's own files (message thread)
-    struct PresetEntry { juce::String name; bool factory = true; juce::File file; };
+    // A sound is a patch (one layer: it can go on either) or a performance (both layers and the play mode).
+    struct PresetEntry { juce::String name; bool factory = true; juce::File file; juce::String category; bool bothLayers = false; };
     std::vector<PresetEntry> presetList() const;
-    void loadPreset(int index);
+    void loadPreset(int index);                      // the whole instrument
     void stepPreset(int delta);
     juce::String presetName() const { return presetName_; }
     int presetIndex() const { return presetIndex_; }
     bool presetEdited() const;
-    juce::String saveUserPreset(const juce::String& name);
+    juce::String saveUserPreset(const juce::String& name);          // both layers, as a performance
+
+    // ---- each layer's sound: any patch on either layer; from a performance, either of its layers
+    void loadIntoLayer(int index, int layer, int part = 0);
+    void stepLayer(int layer, int delta);            // the next or previous patch, on that layer
+    std::vector<int> layerPatches() const;           // the one-layer sounds, in list order (indices into presetList())
+    juce::String layerName(int layer) const { return layerName_[size_t(layer & 1)]; }
+    int layerIndex(int layer) const { return layerIndex_[size_t(layer & 1)]; }
+    bool layerEdited(int layer) const;
+    juce::String saveLayerPatch(const juce::String& name, int layer);
     bool deleteUserPreset(int index);
     static juce::File presetFolder();
 
     // ---- compare
     int abSlot() const { return abSlot_; }
     void selectAB(int slot);
+
+    // ---- your own waves (message thread): 8 slots, after the 32 built-in alternatives in every wave list.
+    // A slot keeps one cycle (2048 points); it is saved with the session, and with any sound that uses it.
+    static constexpr int kCycle = 2048;
+    juce::String importWave(int slot, const juce::File& file);      // "" when it worked, else why not
+    void setUserWave(int slot, const juce::String& name, const std::vector<float>& cycle);
+    void clearUserWave(int slot);
+    juce::String userWaveName(int slot) const { return slot >= 0 && slot < td::kUserWaves ? userName_[size_t(slot)] : juce::String(); }
+    int freeUserWave() const;                                        // the first empty slot, or -1
+    const std::vector<float>& userCycle(int slot) const { return userCycle_[size_t(juce::jlimit(0, td::kUserWaves - 1, slot))]; }
 
     // ---- undo and redo (message thread): the sound before and after each edit made in the window.
     // Patch, compare and DICE are edits too. Wheel nudges to the same control within a second merge.
@@ -140,14 +160,35 @@ private:
     Setting ab_[2];
     juce::String abName_[2];
     int abIndex_[2] = {0, 0};
-    struct Snapshot { Setting values, snap; juce::String name; int index = 0; };
+    // What is on the layers, by name: kept with each undo step and each of A and B.
+    struct LayerNames { std::array<juce::String, 2> name{{"init", "init"}}; std::array<int, 2> index{{0, 0}}, part{{0, 0}}; std::array<Setting, 2> snap; };
+    struct Snapshot { Setting values, snap; juce::String name; int index = 0; LayerNames layers; };
     struct UndoStep { juce::String what; Snapshot before, after; double when = 0; };
-    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_}; }
+    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_, layerNames()}; }
+    LayerNames layerNames() const;
+    void setLayerNames(const LayerNames& n);
+    Setting layerValues(int layer) const;
+    void nameWhole();                                // the performance's name, from its layers'
+    std::array<juce::String, 2> layerName_{{"init", "init"}};
+    std::array<int, 2> layerIndex_{{0, 0}}, layerPart_{{0, 0}};
+    std::array<Setting, 2> layerSnap_;
+    LayerNames abLayers_[2];
     void restore(const Snapshot& s);
     std::vector<UndoStep> undo_, redo_;
     Snapshot pending_;
     juce::String pendingWhat_;
     bool editing_ = false;
+
+    std::array<std::unique_ptr<td::WaveTable>, td::kUserWaves> userTable_;
+    std::vector<std::unique_ptr<td::WaveTable>> retired_;          // replaced tables, kept a while: the audio thread may still read one
+    std::array<juce::String, td::kUserWaves> userName_;
+    std::array<std::vector<float>, td::kUserWaves> userCycle_;
+    // Your waves travel with what uses them. Reading puts each where it fits: the same wave already here is shared,
+    // and a slot `keepLayer` uses is never overwritten (the wave moves to another slot). Returns file slot -> slot here (-1: no room).
+    void writeWaves(juce::XmlElement& into, bool onlyUsed, int layer = -1) const;
+    std::array<int, td::kUserWaves> readWaves(const juce::XmlElement& from, int keepLayer = -1);
+    static float mapWave(float altValue, const std::array<int, td::kUserWaves>& map);
+    bool waveUsed(int slot, int layer = -1) const;
 
     double sampleRate_ = 48000;
     std::vector<float> l_, r_, scL_, scR_;

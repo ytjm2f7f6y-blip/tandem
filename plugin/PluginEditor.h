@@ -13,7 +13,8 @@
 // The rendered art, loaded once per process and shared by every open window.
 struct TandemArt {
     TandemArt();
-    juce::Image panel, drawer, leds, faderCap;
+    juce::Image panel, drawer, leds;
+    juce::Image faderCap[layout::kNumFaderCaps];
     juce::Image strip[layout::kNumStrips];
     int stripFrames[layout::kNumStrips] = {};
     juce::Typeface::Ptr legend;
@@ -69,6 +70,7 @@ public:
     void copyLayer();                                        // SHIFT + LAYER 2: the edited layer onto the other
     void tap(double ms);                                     // TAP, at this time (milliseconds)
     void pressControl(const char* controlId);               // as if that key were clicked
+    void copySlotToOtherLayer(int slot);                     // the overview's right-click: "Copy it to layer N"
     // For tests: one frame of the window's timer, and every area it asks to be repainted.
     void tick() { timerCallback(); }
     std::function<void(juce::Rectangle<int>)> repaintHook;
@@ -79,7 +81,7 @@ public:
 
 private:
     friend class ControlProxy;
-    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001 };
+    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001, kPatchWin1 = 2002, kPatchWin2 = 2003 };
 
     void timerCallback() override;
 
@@ -102,6 +104,8 @@ private:
     juce::String tagText(int ci) const;
     void drawOverview(juce::Graphics&);                // the MOD menu's first page: every slot in use
     int overviewSlotAt(juce::Point<float> pt) const;
+    void showSlotMenu(int slot);                       // right-click on a line of the overview
+    int ovSlot_ = -1;                                  // the overview line being dragged (its amount)
     void accessibleNudge(int ci, int dir, bool fine);
     void accessibleActivate(int ci);
     void focusChanged(int ci);
@@ -111,7 +115,21 @@ private:
     void showPresetMenu();
     void showTypeMenu();
     void showSizeMenu();
-    void askPresetName();
+    void askPresetName(int what = 2);                // 0, 1: save that layer as a patch; 2: both, as a performance
+    void showWriteMenu();
+    // ---- each layer's patch window
+    void drawPatchWindow(juce::Graphics&, int layer);
+    void showLayerMenu(int layer);
+    // ---- your own waves: imported into one of 8 slots, chosen in any wave slot's list
+    void showWaveMenu(juce::RangedAudioParameter* slot);
+    void importWaveInto(juce::RangedAudioParameter* slot);
+    std::unique_ptr<juce::FileChooser> chooser_;
+    void loadLayer(int index, int layer, int part);
+    juce::Rectangle<float> patchWin(int layer) const;
+    bool patchEdited_[2] = {false, false};
+    juce::String patchSeen_;
+    // ---- the drawer slides up over the bottom of the panel: its controls sit this far above where the layout puts them
+    float dy(int ci) const { return ci >= 0 && ci < layout::kNumControls && layout::kControls[ci].drawer ? -layout::kDrawerH : 0.0f; }
     std::unique_ptr<juce::AlertWindow> saveDialog_;
 
     // ---- the display

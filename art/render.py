@@ -738,33 +738,48 @@ def push_key(w, h, lit, led=True):
 
 
 def fader_plate(travel):
-    """The fader's cover: a nickel plate with a slot down it, the slot dark inside."""
+    """The fader's cover: a brushed steel plate, its slot chamfered and dark inside, a felt strip at the
+    bottom of the slot, and a small screw at each end."""
     M = mats()
     w = L.FADER_PLATE_W
-    h = travel + L.FADER_CAP[1] + 6
-    plate = frame_curve("fader_plate", rounded_rect_pts(w, h, 2.5), rounded_rect_pts(2.6, travel + 6, 1.2), 0.5, 0.25, M["nickel"])
+    h = travel + L.FADER_CAP[1] + 12
+    steel = M.setdefault("brushed", simple("brushed", srgb((0.62, 0.62, 0.60)), metal=1.0, rough=0.38))
+    plate = frame_curve("fader_plate", rounded_rect_pts(w, h, 2.5), rounded_rect_pts(3.4, travel + 8, 1.5), 0.6, 0.35, steel)
     plate.location.z = 0.05
-    slot = prism("fader_slot", rounded_rect_pts(3.2, travel + 7, 1.3), -0.4, 0.2, M["dark"])
-    return [plate, slot]
+    lip = frame_curve("fader_lip", rounded_rect_pts(4.6, travel + 9.5, 2.0), rounded_rect_pts(3.0, travel + 7.6, 1.4), 0.25, 0.15, M["nickel"])
+    lip.location.z = 0.55
+    slot = prism("fader_slot", rounded_rect_pts(3.6, travel + 9, 1.5), -1.2, 0.3, M["dark"])
+    felt = prism("fader_felt", rounded_rect_pts(2.4, travel + 7, 1.0), -1.25, -1.0,
+                 M.setdefault("felt", simple("felt", srgb((0.05, 0.05, 0.06)), rough=1.0)))
+    objs = [plate, lip, slot, felt]
+    for sy in (-1, 1):                                   # a screw at each end, past the cap's travel
+        for o in screw(35 if sy > 0 else 120):
+            o.scale = (0.42, 0.42, 0.5)
+            o.location.y = sy * (h / 2 - 3.6)
+            o.location.z = 0.45
+            objs.append(o)
+    return objs
 
 
-def fader_cap():
-    """A broadcast-desk fader knob: a black block with a dished top, grip ridges and a white line."""
+def fader_cap(colour=None):
+    """A desk fader knob: an anodised black body on a chrome skirt; across the top a band in the box's
+    cap colour with a white index line, and grip ridges at both ends."""
     M = mats()
     cw, ch = L.FADER_CAP
-    style = T["fader"]
-    body = {"ivory": lambda: M.setdefault("cream", plastic("cream", (0.90, 0.86, 0.74))),
-            "white": lambda: M.setdefault("fwhite", plastic("fwhite", (0.94, 0.93, 0.90))),
-            "machined": lambda: M.setdefault("anod", simple("anod", (0.018, 0.018, 0.022, 1), metal=0.7, rough=0.33))}.get(style, lambda: M["phen"])()
-    line = M["white"] if style in ("phenolic", "machined") else M.setdefault("ink_black", simple("ink_black", (0.02, 0.02, 0.02, 1), rough=0.5))
-    objs = [prism("cap_stem", rounded_rect_pts(4.0, 8.0, 1.0), 0, 4.0, M["nickel"], bevel=0.3)]
-    objs.append(prism("cap_body", rounded_rect_pts(cw, ch, 3.0), 3.5, 11.0, body, bevel=1.4, taper=0.92))
-    for k in (-1, 1):       # ridges across the top, front and back, for the finger
-        for j in range(3):
-            y = k * (ch / 2 - 3.2 - j * 1.8)
-            objs.append(prism("ridge", [(-cw * 0.36, y - 0.35), (cw * 0.36, y - 0.35), (cw * 0.36, y + 0.35), (-cw * 0.36, y + 0.35)],
-                              10.6, 11.25, body, bevel=0.15, smooth=False))
-    objs.append(prism("cap_line", [(-cw * 0.42, -0.55), (cw * 0.42, -0.55), (cw * 0.42, 0.55), (-cw * 0.42, 0.55)], 10.7, 11.12, line, smooth=False))
+    anod = M.setdefault("anod", simple("anod", (0.016, 0.016, 0.019, 1), metal=0.75, rough=0.3))
+    key = "fcap_" + ("%.3f_%.3f_%.3f" % tuple(colour) if colour else "ivory")
+    band = M.setdefault(key, plastic(key, colour) if colour else plastic(key, (0.90, 0.86, 0.74)))
+    objs = [prism("cap_stem", rounded_rect_pts(4.0, 8.0, 1.0), 0, 3.6, M["nickel"], bevel=0.3)]
+    objs.append(prism("cap_skirt", rounded_rect_pts(cw + 1.6, ch + 1.6, 3.4), 3.2, 4.2, M["nickel"], bevel=0.35))
+    objs.append(prism("cap_body", rounded_rect_pts(cw, ch, 3.0), 4.0, 11.2, anod, bevel=1.1, taper=0.93))
+    bw, bh = cw * 0.80, ch * 0.40                          # the coloured band, set into the top
+    objs.append(prism("cap_band", rounded_rect_pts(bw, bh, 1.6), 10.9, 11.55, band, bevel=0.3))
+    for k in (-1, 1):                                     # grip ridges at each end of the top
+        for j in range(4):
+            y = k * (bh / 2 + 1.5 + j * 1.55)
+            objs.append(prism("ridge", [(-cw * 0.34, y - 0.38), (cw * 0.34, y - 0.38), (cw * 0.34, y + 0.38), (-cw * 0.34, y + 0.38)],
+                               10.7, 11.35, anod, bevel=0.15, smooth=False))
+    objs.append(prism("cap_line", [(-bw * 0.48, -0.5), (bw * 0.48, -0.5), (bw * 0.48, 0.5), (-bw * 0.48, 0.5)], 11.5, 11.72, M["white"], smooth=False))
     return objs
 
 
@@ -772,10 +787,11 @@ def display_box(w, h, name, show=None):
     """A readout: a phenolic bezel, a nickel mask, and dark green-black glass the plugin writes behind."""
     M = mats()
     objs = []
-    inset = 9.0 if w > 150 else 4.5
+    big = w > 150 and h > 60                     # the display; small: the filter type and patch windows
+    inset = 9.0 if big else 4.5
     fw, fh = w - 2 * inset, h - 2 * inset
-    bez = frame_curve(name + "_bezel", rounded_rect_pts(w, h, 8.0 if w > 150 else 4.0), rounded_rect_pts(fw + 3.0, fh + 3.0, 5.0 if w > 150 else 2.5),
-                      2.4 if w > 150 else 1.4, 1.0 if w > 150 else 0.6, M["phen"])
+    bez = frame_curve(name + "_bezel", rounded_rect_pts(w, h, 8.0 if big else 4.0), rounded_rect_pts(fw + 3.0, fh + 3.0, 5.0 if big else 2.5),
+                      2.4 if big else 1.4, 1.0 if big else 0.6, M["phen"])
     bez.location.z = 2.0
     objs.append(bez)
     mask = frame_curve(name + "_mask", rounded_rect_pts(fw + 4.0, fh + 4.0, 5.5), rounded_rect_pts(fw - 0.6, fh - 0.6, 4.0), 0.3, 0.2, M["nickel"])

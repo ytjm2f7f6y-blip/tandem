@@ -13,6 +13,7 @@
 #include "td_dsp.hpp"
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -125,6 +126,14 @@ private:
 
     std::array<WaveTable, kNumClassic> classic_;
     std::array<WaveTable, kNumAlt> alt_;
+};
+
+// Your own waves: kUserWaves slots after the built-in alternatives (alternative index kNumAlt + k).
+// The plugin builds each table on the message thread and publishes it here; the audio thread
+// only reads the pointers (an empty slot plays the first built-in alternative).
+constexpr int kUserWaves = 8;
+struct UserWaves {
+    std::array<std::atomic<const WaveTable*>, kUserWaves> t{};
 };
 
 inline const char* WaveBank::altName(int i) {

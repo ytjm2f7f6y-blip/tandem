@@ -10,7 +10,7 @@ Assets:
   drawer.jpg            the setup drawer, pulled out, lamps off
   leds.png              an atlas of every lamp lit, cut from the lit renders, edges feathered
   knob_<kind>_<colour>.jpg / _mask.png   the knob strips (colour on black, one shared outline)
-  fader_cap.png
+  fader_cap_<box>.png   a fader cap in each box's colour
 """
 import math
 import os
@@ -29,7 +29,8 @@ B_PANEL = os.path.join(HERE, "build_plugin")
 B_OPEN = os.path.join(HERE, "build_plugin_open")
 S = L.SCALE
 STRIP_ORDER = ["large_orange", "large_red", "med_cream", "med_orange", "med_teal", "med_mustard", "med_red",
-               "small_red", "enc_red", "ring_cream", "ring_teal", "ring_red", "trim_cream"]
+               "small_red", "ring_cream", "ring_teal", "ring_red", "trim_cream"]
+FADER_CAPS = sorted({L.box_of(c["x"], c["y"]) for c in L.CONTROLS if c["type"] == "fader"})      # a cap per box colour
 COLOURS = {"cream": (0.93, 0.89, 0.78), "orange": (0.93, 0.45, 0.18), "teal": (0.20, 0.60, 0.62),
            "mustard": (0.92, 0.72, 0.22), "red": (0.80, 0.22, 0.18)}
 CAPS = {"osc": "cream", "mix": "cream", "vcf": "orange", "lfo": "teal", "env": "mustard", "perf": "red", "arp": "red",
@@ -140,9 +141,13 @@ def pack():
         mask = a[..., 3].reshape(n, fw, fw).max(axis=0)
         Image.fromarray(np.clip(mask + 0.5, 0, 255).astype(np.uint8), "L").save(os.path.join(ASSETS, f"knob_{nm}_mask.png"), optimize=True)
         print(f"knob_{nm}:", n, "frames")
-    fc = np.asarray(Image.open(os.path.join(B_PANEL, "sprites", "fader_cap.png")).convert("RGBA")).astype(np.float32)
-    Image.fromarray(np.clip(clean_catcher(fc) + 0.5, 0, 255).astype(np.uint8), "RGBA").save(os.path.join(ASSETS, "fader_cap.png"), optimize=True)
-    print("fader cap")
+    for f_ in os.listdir(ASSETS):
+        if f_.startswith("fader_cap"):
+            os.remove(os.path.join(ASSETS, f_))
+    for box in FADER_CAPS:
+        fc = np.asarray(Image.open(os.path.join(B_PANEL, "sprites", f"fader_cap_{box}.png")).convert("RGBA")).astype(np.float32)
+        Image.fromarray(np.clip(clean_catcher(fc) + 0.5, 0, 255).astype(np.uint8), "RGBA").save(os.path.join(ASSETS, f"fader_cap_{box}.png"), optimize=True)
+        print("fader cap", box)
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +178,7 @@ def header():
     w("")
     w("namespace layout {")
     w("")
-    w(f"constexpr float W = {f(L.W)}, H = {f(L.H_PANEL)}, kDrawerH = {f(L.DRAWER_H)};   // the drawer adds kDrawerH below the panel")
+    w(f"constexpr float W = {f(L.W)}, H = {f(L.H_PANEL)}, kDrawerH = {f(L.DRAWER_H)};   // the drawer slides up over the bottom kDrawerH")
     w(f"constexpr int kArtScale = {S};")
     w(f"constexpr float kSweep = {f(L.SWEEP)};     // continuous knobs: +-degrees")
     w("enum Kind { kLarge, kMed, kSmall, kRing, kTrim };")
@@ -181,6 +186,8 @@ def header():
     w(f"constexpr float kShadowMargin = {f(SHADOW_MARGIN)};   // a knob sprite is 2 r + 2 margins square")
     w("enum Type { Knob, Key, Fader, Lamp };")
     w("")
+    w(f"constexpr int kNumFaderCaps = {len(FADER_CAPS)};")
+    w("inline const char* const kFaderCapNames[kNumFaderCaps] = {" + ", ".join(f'"{n}"' for n in FADER_CAPS) + "};")
     w(f"constexpr int kNumStrips = {len(STRIP_ORDER)};")
     w("inline const char* const kStripNames[kNumStrips] = {" + ", ".join(f'"{n}"' for n in STRIP_ORDER) + "};")
     w("")
@@ -188,7 +195,7 @@ def header():
     w("    const char* id;")
     w("    Type type;")
     w("    int kind;            // knobs: Kind")
-    w("    int strip;           // knobs: index into kStripNames")
+    w("    int strip;           // knobs: index into kStripNames; faders: into kFaderCapNames")
     w("    float x, y, w, h;    // centre; keys: size; lamps: diameter")
     w("    int nSteps;          // rings: positions")
     w("    float steps[12];     // rings: angles (degrees)")
@@ -206,7 +213,7 @@ def header():
     for c in L.CONTROLS:
         t = {"knob": "Knob", "key": "Key", "fader": "Fader", "lamp": "Lamp"}[c["type"]]
         kind = KINDS.index(c["kind"]) if c["type"] == "knob" else 0
-        strip = STRIP_ORDER.index(strip_name(c)) if c["type"] == "knob" else -1
+        strip = STRIP_ORDER.index(strip_name(c)) if c["type"] == "knob" else (FADER_CAPS.index(L.box_of(c["x"], c["y"])) if c["type"] == "fader" else -1)
         cw, ch = (c.get("w", 0), c.get("h", 0)) if c["type"] == "key" else ((2 * c["r"], 2 * c["r"]) if c["type"] == "lamp" else (0, 0))
         st = (c.get("steps") or []) if (c["type"] == "knob" and c["kind"] == "ring") else []
         frames = [rings[strip_name(c)].index(round(a, 3)) for a in st] if st else []
@@ -231,7 +238,7 @@ def header():
     w(f"constexpr float kFaderBoxW = {f(fw_)}, kFaderBoxH = {f(fh_)}, kFaderCapH = {f(L.FADER_CAP[1])};")
 
     def face(spec):
-        inset = 9.0 if spec["w"] > 150 else 4.5
+        inset = 9.0 if spec["w"] > 150 and spec["h"] > 60 else 4.5
         return spec["x"] - spec["w"] / 2 + inset, spec["y"] - spec["h"] / 2 + inset, spec["w"] - 2 * inset, spec["h"] - 2 * inset
     dx, dy, dw, dh = face(L.DISPLAY)
     w("// The display's glass and the filter type window's, where the window writes.")
@@ -239,6 +246,9 @@ def header():
     w(f"constexpr float kEncX[4] = {{{', '.join(f(x) for x in L.ENC_X)}}};   // the display's columns sit over these")
     tx, ty, tw, th = face(L.TYPE_WIN)
     w(f"constexpr float kTypeX = {f(tx)}, kTypeY = {f(ty)}, kTypeW = {f(tw)}, kTypeH = {f(th)};")
+    w("// Each layer's patch window (its glass).")
+    pw = [face(p_) for p_ in L.PATCH_WINS]
+    w("constexpr float kPatchWin[2][4] = {" + ", ".join("{" + ", ".join(f(v) for v in r) + "}" for r in pw) + "};")
     w("")
     w("}  // namespace layout")
     w("")
