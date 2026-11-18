@@ -492,7 +492,10 @@ juce::Rectangle<float> TandemEditor::boundsOf(int ci) const {
 }
 
 void TandemEditor::repaintPts(juce::Rectangle<float> r) {
-    if (!r.isEmpty()) repaint((r * s_).getSmallestIntegerContainer().expanded(2));
+    if (r.isEmpty()) return;
+    const auto area = (r * s_).getSmallestIntegerContainer().expanded(2);
+    if (repaintHook) repaintHook(area);
+    repaint(area);
 }
 
 int TandemEditor::hit(juce::Point<float> pt) const {
@@ -1258,7 +1261,6 @@ void TandemEditor::paint(juce::Graphics& g) {
             case Lamp: break;
         }
         if (destOf(i)) drawModMarks(g, i);
-        drawn_[size_t(i)] = look(i);
     }
     if (clip.intersects(juce::Rectangle<float>(kDispX, kDispY, kDispW, kDispH))) drawDisplay(g);
     if (clip.intersects(juce::Rectangle<float>(kTypeX, kTypeY, kTypeW, kTypeH))) drawTypeWindow(g);
@@ -1280,7 +1282,6 @@ void TandemEditor::paint(juce::Graphics& g) {
         g.setColour(kModAmber);
         g.drawRoundedRectangle(r * s_, 5 * s_, 1.4f * s_);
     }
-    drawnTitle_ = patchLabel() + juce::String(proc_.menu * 100 + proc_.page[proc_.menu]);
 }
 
 // The value tag: a small piece of the display's glass by a control while you turn it.
@@ -1409,9 +1410,12 @@ void TandemEditor::timerCallback() {
     }
     repaintPts({kDispX - 2, kDispY - 2, kDispW + 4, kDispH + 4});
     repaintPts({kTypeX - 2, kTypeY - 2, kTypeW + 4, kTypeH + 4});
+    // A control that has changed since it was last asked to be repainted: all of it, again. (Painting
+    // cannot keep this record: a paint may cover only a sliver of a control, under a value tag, say.)
     for (int i = 0; i < kNumControls; ++i) {
         if (kControls[i].encoder || (kControls[i].drawer && !proc_.drawerOpen)) continue;
-        if (look(i) != drawn_[size_t(i)]) repaintPts(boundsOf(i));
+        const uint64_t now = look(i);
+        if (now != drawn_[size_t(i)]) { repaintPts(boundsOf(i)); drawn_[size_t(i)] = now; }
     }
 }
 
@@ -1555,6 +1559,7 @@ void TandemEditor::mouseDrag(const juce::MouseEvent& e) {
         if (is(c, "fx_drive") && proc_.value("drv_mode") < 0.5f && p->getValue() > 0.0f)
             if (auto* m = proc_.param("drv_mode")) { m->beginChangeGesture(); TandemProcessor::set(m, 1.0f); m->endChangeGesture(); }
         if (is(c, "clock")) if (auto* h = proc_.param("perf_host"); h && h->getValue() >= 0.5f) { h->beginChangeGesture(); h->setValueNotifyingHost(0.0f); h->endChangeGesture(); }
+        repaintPts(boundsOf(drag_));                    // the knob under the mouse at once, not at the next frame
         touch(keyOf(drag_));
         showTagFor(c.id);
     }

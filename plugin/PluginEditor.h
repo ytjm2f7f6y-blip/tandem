@@ -6,6 +6,7 @@
 #include "Layout.h"
 #include "PluginProcessor.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -68,6 +69,9 @@ public:
     void copyLayer();                                        // SHIFT + LAYER 2: the edited layer onto the other
     void tap(double ms);                                     // TAP, at this time (milliseconds)
     void pressControl(const char* controlId);               // as if that key were clicked
+    // For tests: one frame of the window's timer, and every area it asks to be repainted.
+    void tick() { timerCallback(); }
+    std::function<void(juce::Rectangle<int>)> repaintHook;
     static constexpr int kMatrixFirst = 1;                   // the MOD menu: the overview, then a page a slot
 
     static const std::vector<DisplayPage>& pages(int menu);
@@ -145,12 +149,11 @@ private:
     float s_ = 1.0f;
 
     std::vector<juce::String> key_;      // the parameter each control works, by control index
-    std::vector<uint64_t> drawn_;        // what each control looked like when last painted
+    std::vector<uint64_t> drawn_;        // what each control looked like when the timer last had it repainted
     uint64_t look(int ci) const;
     float encAngle_[4] = {36, 144, 252, 90};
     double clock_ = 0;
     double odUntil_ = 0;
-    juce::String drawnTitle_;
 
     juce::String touchedKey_, noticeText_;
     double touchedUntil_ = 0, noticeUntil_ = 0;

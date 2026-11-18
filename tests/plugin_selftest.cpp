@@ -441,6 +441,55 @@ int main() {
             }
             std::printf("      RESONANCE as drawn: %s of %d frames, %dx%d snapshot\n", seen.toRawUTF8(), frames, te->getWidth(), te->getHeight());
             CHECK(right, "the knob drawn shows the strip's frame for its value");
+
+            // Turning a knob in a real window: the window only repaints the areas it asks for, one at a
+            // time, as the system does. After a drag the knob on the screen must be the knob as it now is.
+            juce::Image screen(juce::Image::ARGB, te->getWidth(), te->getHeight(), true);
+            std::vector<juce::Rectangle<int>> dirty;
+            te->repaintHook = [&](juce::Rectangle<int> r) { dirty.push_back(r); };
+            auto paintDirty = [&] {
+                for (const auto& r : dirty) { juce::Graphics g(screen); g.reduceClipRegion(r); te->paint(g); }
+                dirty.clear();
+            };
+            auto frame = [&] { te->tick(); paintDirty(); };
+            { juce::Graphics g(screen); te->paint(g); }
+            for (int i = 0; i < 5; ++i) frame();
+            auto at = [](const char* id) {
+                for (int i = 0; i < layout::kNumControls; ++i)
+                    if (juce::String(layout::kControls[i].id) == id) return juce::Point<float>(layout::kControls[i].x, layout::kControls[i].y);
+                return juce::Point<float>();
+            };
+            auto src = juce::Desktop::getInstance().getMainMouseSource();
+            const auto t0 = juce::Time::getCurrentTime();
+            auto ev = [&](juce::Point<float> pos, juce::Point<float> down, bool dragged) {
+                return juce::MouseEvent(src, pos, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down, t0, 1, dragged);
+            };
+            double worst = 0.0;
+            for (const char* id : {"f_res", "f_cutoff", "e2_vel", "level2", "fx_fb", "m_detune"}) {
+                const auto c0 = at(id);
+                te->mouseDown(ev(c0, c0, false));
+                paintDirty();
+                frame();
+                // The system paints what a mouse event asked for straight away, before the timer's next frame.
+                for (int k = 1; k <= 12; ++k) { te->mouseDrag(ev(c0.translated(0, -5.0f * float(k)), c0, true)); paintDirty(); frame(); }
+                te->mouseUp(ev(c0.translated(0, -60.0f), c0, true));
+                paintDirty();
+                for (int i = 0; i < 40; ++i) frame();          // the value tag comes and goes
+                const auto fresh = te->createComponentSnapshot(te->getLocalBounds(), true, 1.0f).convertedToFormat(juce::Image::ARGB);
+                const juce::Image::BitmapData a(screen, juce::Image::BitmapData::readOnly), b(fresh, juce::Image::BitmapData::readOnly);
+                double diff = 0;
+                int n = 0;
+                for (int y = int(c0.y) - 18; y <= int(c0.y) + 18; ++y)
+                    for (int x = int(c0.x) - 18; x <= int(c0.x) + 18; ++x, ++n) {
+                        const auto p1 = a.getPixelColour(x, y), p2 = b.getPixelColour(x, y);
+                        diff += std::abs(int(p1.getRed()) - int(p2.getRed())) + std::abs(int(p1.getGreen()) - int(p2.getGreen())) + std::abs(int(p1.getBlue()) - int(p2.getBlue()));
+                    }
+                diff /= double(n) * 3.0;
+                std::printf("      %-9s after a drag: on screen vs as it is, %.2f levels apart on average\n", id, diff);
+                worst = std::max(worst, diff);
+            }
+            te->repaintHook = nullptr;
+            CHECK(worst < 2.0, "turning a knob, the knob on the screen follows (the window repaints all of it, not a sliver)");
         }
 
         // A factory sound can set layer 2 ("2:key") and the play mode.
