@@ -69,9 +69,13 @@ constexpr int kVoiceCounts[4] = {2, 4, 8, 16};
 inline const juce::StringArray kOctave{"-2", "-1", "0", "+1", "+2"};
 inline const juce::StringArray kLfo2Waves{"Triangle", "Sawtooth", "Sample & Hold", "Square", "Ramp", "Noise"};
 inline const juce::StringArray kLfo2Trig{"Wheel", "AT & Wheel", "On"};
-inline const juce::StringArray kModSources{"Off", "OSC 2", "LFO 1", "LFO 2", "ENV 1", "ENV 2", "Velocity", "Aftertouch", "Expression", "Env Follower", "Note"};
+inline const juce::StringArray kModSources{"Off", "OSC 2", "LFO 1", "LFO 2", "ENV 1", "ENV 2", "Velocity", "Aftertouch", "Expression", "Env Follower", "Note",
+                                           "Mod Wheel", "Note Random"};
 inline const juce::StringArray kModDests{"Off", "LFO 1 Rate", "Cutoff", juce::String::fromUTF8("\xce\x94-Cutoff"), "ENV 1 > Cutoff", "ENV 1 Depth", "LFO 1 Depth",
-                                         "OSC 2 > OSC 1", "OSC 1 Wave", "OSC 1 Mix", "OSC 2 Mix", "Resonance", "ENV 1 Decay", "Delay Time", "VCA Level", "ENV 1 Attack"};
+                                         "OSC 2 > OSC 1", "OSC 1 Wave", "OSC 1 Mix", "OSC 2 Mix", "Resonance", "ENV 1 Decay", "Delay Time", "VCA Level", "ENV 1 Attack",
+                                         "Pitch", "Pan"};
+inline const juce::StringArray kModCurves{"Linear", "Exp", "Steps", "Smooth"};
+inline const juce::StringArray kRndCount{"Free", "1", "2", "3", "4", "5", "6", "7", "8"};
 inline const juce::StringArray kDriveModes{"Off", "Harmonic", "Overdrive", "Fuzz"};
 inline const juce::StringArray kDelayDivs{"1/32", "1/32.", "1/16T", "1/16", "1/16.", "1/8T", "1/8", "1/8.", "1/4T", "1/4", "1/4.", "1/2T", "1/2", "1/2.", "1/1T", "1/1"};
 inline const juce::StringArray kDelayModes{"Stereo", "Ping-Pong", "Mono"};
@@ -182,7 +186,13 @@ inline std::vector<Def> layerDefs() {
         C(("m" + n + "_src").toRawUTF8(), ("Matrix " + n + " Source").toRawUTF8(), kModSources, 0);
         C(("m" + n + "_dst").toRawUTF8(), ("Matrix " + n + " Destination").toRawUTF8(), kModDests, 0);
         F(("m" + n + "_amt").toRawUTF8(), ("Matrix " + n + " Amount").toRawUTF8(), -1, 1, 0, [](float v, int) { const int a = juce::roundToInt(v * 63.0f); return (a > 0 ? "+" : "") + juce::String(a); });
+        C(("m" + n + "_via").toRawUTF8(), ("Matrix " + n + " Via").toRawUTF8(), kModSources, 0);
+        C(("m" + n + "_crv").toRawUTF8(), ("Matrix " + n + " Curve").toRawUTF8(), kModCurves, 0);
     }
+    C("rnd_count", "Note Random Cycle", kRndCount, 0);
+    // variation
+    F("vary", "Vary", 0, 1, 0);
+    F("vary_seed", "Vary Roll", 0, 9999, 0, [](float v, int) { return "#" + juce::String(juce::roundToInt(v)).paddedLeft('0', 4); }, 1);
     // insert effects
     C("drv_mode", "Drive", kDriveModes, 0);
     F("drv_tone", "Drive Tone", 0, 1, 0.5f);
@@ -273,7 +283,8 @@ struct LayerReader {
     struct Ix { int osc1Wave, osc2Wave, t1, f1, t2, f2, sync, octave, modOsc, detune, waveSrc, waveMod, pitchSrc, pitchMod, alt1[6], alt2[3], altL[2],
                 l1, l2, lx, cutoff, res, kt, vsrc, vmod, delta, route, tSt, tPar, tSer, resType, lw, lm, lr, ld, lph, lsy,
                 e1h, e1a, e1d, e1s, e1r, e1m, e2a, e2d, e2s, e2r, vca, e3m, e3h, e3a, e3d, e3s, e3r, velVca, velVcf,
-                vmode, uni, voices, drift, spread, glide, bendR, bendV, l2w, l2t, l2r, l2d, l2rm, l2p, l2v, l2a, mS[7], mD[7], mA[7],
+                vmode, uni, voices, drift, spread, glide, bendR, bendV, l2w, l2t, l2r, l2d, l2rm, l2p, l2v, l2a,
+                mS[td::kMatrixSlots], mD[td::kMatrixSlots], mA[td::kMatrixSlots], mV[td::kMatrixSlots], mC[td::kMatrixSlots], rndCount, vary, varySeed,
                 drvM, drvT, drvA, drvX, chOn, chR, chD, chDl, chX, eqL, eqM, eqH, eqQ, dT, dM, dF, dD, bal, frz, rS, rD, rL, rP, rW, level, pan, send; } ix{};
     void index() {
         auto I = [&](const char* k) { return idx(k); };
@@ -295,10 +306,12 @@ struct LayerReader {
         ix.bendR = I("bend_range"); ix.bendV = I("bend_vcf");
         ix.l2w = I("lfo2_wave"); ix.l2t = I("lfo2_trig"); ix.l2r = I("lfo2_rate"); ix.l2d = I("lfo2_delay"); ix.l2rm = I("lfo2_ratemod"); ix.l2p = I("lfo2_pitch");
         ix.l2v = I("lfo2_vcf"); ix.l2a = I("lfo2_vca");
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < td::kMatrixSlots; ++i) {
             const juce::String n(i + 1);
             ix.mS[i] = idx(("m" + n + "_src").toRawUTF8()); ix.mD[i] = idx(("m" + n + "_dst").toRawUTF8()); ix.mA[i] = idx(("m" + n + "_amt").toRawUTF8());
+            ix.mV[i] = idx(("m" + n + "_via").toRawUTF8()); ix.mC[i] = idx(("m" + n + "_crv").toRawUTF8());
         }
+        ix.rndCount = I("rnd_count"); ix.vary = I("vary"); ix.varySeed = I("vary_seed");
         ix.drvM = I("drv_mode"); ix.drvT = I("drv_tone"); ix.drvA = I("drv_amount"); ix.drvX = I("drv_mix");
         ix.chOn = I("ch_on"); ix.chR = I("ch_rate"); ix.chD = I("ch_depth"); ix.chDl = I("ch_delay"); ix.chX = I("ch_mix");
         ix.eqL = I("eq_low"); ix.eqM = I("eq_mid"); ix.eqH = I("eq_high"); ix.eqQ = I("eq_q");
@@ -330,7 +343,10 @@ struct LayerReader {
         p.bendRange = float(n(ix.bendR)); p.bendVcf = v(ix.bendV);
         p.lfo2Wave = n(ix.l2w); p.lfo2Trig = n(ix.l2t); p.lfo2Rate = v(ix.l2r); p.lfo2Delay = v(ix.l2d); p.lfo2RateMod = v(ix.l2rm);
         p.lfo2Pitch = v(ix.l2p); p.lfo2Vcf = v(ix.l2v); p.lfo2Vca = v(ix.l2a);
-        for (int i = 0; i < 7; ++i) { p.mSrc[i] = n(ix.mS[i]); p.mDst[i] = n(ix.mD[i]); p.mAmt[i] = v(ix.mA[i]); }
+        for (int i = 0; i < td::kMatrixSlots; ++i) {
+            p.mSrc[i] = n(ix.mS[i]); p.mDst[i] = n(ix.mD[i]); p.mAmt[i] = v(ix.mA[i]); p.mVia[i] = n(ix.mV[i]); p.mCrv[i] = n(ix.mC[i]);
+        }
+        p.rndCount = n(ix.rndCount); p.vary = v(ix.vary); p.varySeed = n(ix.varySeed);
         p.drvMode = n(ix.drvM); p.drvTone = v(ix.drvT); p.drvAmt = v(ix.drvA); p.drvMix = v(ix.drvX);
         p.chOn = v(ix.chOn) >= 0.5f; p.chRate = v(ix.chR); p.chDepth = v(ix.chD); p.chDelay = v(ix.chDl); p.chMix = v(ix.chX);
         p.eqLow = v(ix.eqL); p.eqMid = v(ix.eqM); p.eqHigh = v(ix.eqH); p.eqQ = v(ix.eqQ);

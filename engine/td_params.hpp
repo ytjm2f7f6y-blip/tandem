@@ -25,12 +25,15 @@ enum SeriesType { kQ4PS1LP = 0, kQ4PS2LP, kQ4PS1HP, kQ4PS4PS, kQ1LP1LP, kQ1LP1HP
 enum VoiceMode { kPoly1 = 0, kSolo, kLegato, kUnison, kPoly2 };
 enum UnisonMode { kUniLevel1 = 0, kUniLevel2, kUniOctave, kUniFifth, kUniMajor };
 
-// Modulation matrix.
+// Modulation matrix. New entries go on the end, so stored patches keep their meaning.
 enum ModSource { kMsNone = 0, kMsOsc2, kMsLfo1, kMsLfo2, kMsEnv1, kMsEnv2, kMsVelocity, kMsAftertouch, kMsExpression, kMsEnvFollower,
-                 kMsNote, kNumModSources };
+                 kMsNote, kMsModWheel, kMsNoteRnd, kNumModSources };
 enum ModDest { kMdNone = 0, kMdLfo1Rate, kMdCutoff, kMdDeltaCutoff, kMdEnv1Cutoff, kMdEnv1Depth, kMdLfo1Depth, kMdOsc2Osc1, kMdOsc1Wave,
-               kMdOsc1Mix, kMdOsc2Mix, kMdResonance, kMdEnv1Decay, kMdDelayTime, kMdVcaLevel, kMdEnv1Attack, kNumModDests };
-constexpr int kMatrixSlots = 7;
+               kMdOsc1Mix, kMdOsc2Mix, kMdResonance, kMdEnv1Decay, kMdDelayTime, kMdVcaLevel, kMdEnv1Attack, kMdPitch, kMdPan, kNumModDests };
+// How a slot shapes its source: straight; squared (gentle near zero); in twelfths (semitones on pitch); slewed.
+enum ModCurve { kCurveLin = 0, kCurveExp, kCurveStep, kCurveSmooth };
+constexpr int kMatrixSlots = 12;
+constexpr int kVaryPattern = 16;          // VARY's pattern: this many notes, then round again
 
 enum DriveMode { kDriveOff = 0, kDriveHarmonic, kDriveOverdrive, kDriveFuzz };
 enum DelayMode { kDelayStereo = 0, kDelayPingPong, kDelayMono };
@@ -84,6 +87,12 @@ struct LayerParams {
     // ---- modulation matrix
     int mSrc[kMatrixSlots] = {}, mDst[kMatrixSlots] = {};
     float mAmt[kMatrixSlots] = {};
+    int mVia[kMatrixSlots] = {};                                     // a second source that scales the amount (kMsNone: none)
+    int mCrv[kMatrixSlots] = {};                                     // ModCurve
+    int rndCount = 0;                                                // NOTE RND: 0 a new value every note, 1..8 a cycle that long
+    // ---- variation (DICE and VARY)
+    float vary = 0.0f;                                               // 0: notes as played .. 1: the most
+    int varySeed = 0;                                                // DICE's roll
     // ---- insert effects
     int drvMode = kDriveOff; float drvTone = 0.5f, drvAmt = 0.3f, drvMix = 1.0f;
     bool chOn = false; float chRate = 0.3f, chDepth = 0.4f, chDelay = 0.3f, chMix = 0.5f;

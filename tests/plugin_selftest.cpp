@@ -1,4 +1,5 @@
 // End-to-end: the real processor, driven the way a host drives it.
+#include "PluginEditor.h"
 #include "PluginProcessor.h"
 
 #include <cstdio>
@@ -137,6 +138,43 @@ int main() {
         CHECK(!p.presetEdited(), "the setup drawer is not part of a sound");
         TandemProcessor::set(p.param("setup_age"), 0.5f);
         TandemProcessor::set(p.param("setup_tune"), 0.0f);
+    }
+    {   // The voices' lamps, the matrix's live output, VARY and the panel's new keys.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        p.loadPreset(tpre::kNumFactory - 1);           // "dice keys": NOTE RND on the cutoff, a vibrato via the wheel, VARY
+        CHECK(p.presetName() == "dice keys", "the new factory patch is the last one");
+        juce::AudioBuffer<float> io(2, block);
+        juce::MidiBuffer chord;
+        for (int n : {48, 55, 60}) chord.addEvent(juce::MidiMessage::noteOn(1, n, 0.8f), 0);
+        p.processBlock(io, chord);
+        for (int b = 0; b < 10; ++b) { juce::MidiBuffer none; p.processBlock(io, none); }
+        int lit = 0;
+        for (int v = 0; v < TandemProcessor::kMeterVoices; ++v) lit += p.voiceMeter(0, v) > 0.003f;
+        std::printf("      %d voice lamps lit of %d voices\n", lit, p.voiceCount(0));
+        CHECK(p.voiceCount(0) > 0 && lit == std::min(3, p.voiceCount(0)), "a three-note chord lights the voices it plays");
+        CHECK(p.modNow(td::kMdCutoff) != 0.0f, "the matrix's live output reaches the window (NOTE RND on the cutoff)");
+
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        const float seed = p.value("vary_seed");
+        te->rollDice();
+        CHECK(p.value("vary_seed") != seed && p.presetEdited(), "DICE rolls a new variation, and the patch counts as changed");
+        p.loadPreset(0);
+        const bool made = te->assignFor("f_cutoff", 0.4f);
+        const int slot = te->assignedSlot();
+        CHECK(made && slot == 0 && juce::roundToInt(p.value("m1_dst")) == td::kMdCutoff && juce::roundToInt(p.value("m1_src")) == td::kMsLfo1
+                  && std::abs(p.value("m1_amt") - 0.4f) < 0.01f,
+              "ASSIGN then the cutoff knob: slot 1, LFO 1 to cutoff at the amount turned");
+        const bool second = te->assignFor("f_res", -0.2f);
+        CHECK(second && te->assignedSlot() == 1 && juce::roundToInt(p.value("m2_dst")) == td::kMdResonance, "a second ASSIGN takes the next free slot");
+        CHECK(!te->assignFor("glide", 0.5f), "ASSIGN on a knob with no matrix destination makes no slot");
+        te->openPageFor("dice");
+        CHECK(p.menu == 0 && juce::String(TandemEditor::pages(0)[size_t(p.page[0])].title) == "VARIATION", "SHIFT + DICE opens the VARIATION page");
+        te->openPageFor("vm1_2");
+        CHECK(p.menu == 1 && juce::String(TandemEditor::pages(1)[size_t(p.page[1])].title) == "VOICE", "SHIFT + a voice mode lamp opens the VOICE page");
+        CHECK(TandemEditor::pages(2).size() == size_t(td::kMatrixSlots) + 7, "twelve matrix pages, then note random and the rest");
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;

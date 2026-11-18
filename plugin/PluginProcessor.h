@@ -6,6 +6,7 @@
 #include "Presets.h"
 #include "td_engine.hpp"
 
+#include <array>
 #include <atomic>
 #include <vector>
 
@@ -76,6 +77,11 @@ public:
     int bank = 0;                            // the patch keys' bank, A-H
     bool drawerOpen = false;
     bool overdriven() const { return odrive_.load(std::memory_order_relaxed); }
+    // The voices' lamps and the matrix's live output, as of the last block (the audio thread writes them).
+    static constexpr int kMeterVoices = 16;
+    float voiceMeter(int layer, int voice) const { return meters_[size_t(layer & 1)][size_t(juce::jlimit(0, kMeterVoices - 1, voice))].load(std::memory_order_relaxed); }
+    int voiceCount(int layer) const { return vcount_[size_t(layer & 1)].load(std::memory_order_relaxed); }
+    float modNow(int dest) const { return dest > 0 && dest < td::kNumModDests ? modNow_[size_t(dest)].load(std::memory_order_relaxed) : 0.0f; }
     int voicesSounding() const { return sounding_.load(std::memory_order_relaxed); }
     double sampleRate() const { return sampleRate_; }
 
@@ -111,6 +117,9 @@ private:
     std::vector<float> l_, r_;
     std::atomic<bool> odrive_{false};
     std::atomic<int> sounding_{0};
+    std::array<std::array<std::atomic<float>, kMeterVoices>, 2> meters_{};
+    std::array<std::atomic<int>, 2> vcount_{};
+    std::array<std::atomic<float>, td::kNumModDests> modNow_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TandemProcessor)
 };

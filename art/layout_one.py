@@ -97,8 +97,9 @@ def fader(pid, x, y, travel, name, scale=False, set_=0.5):
     CONTROLS.append({"id": pid, "type": "fader", "x": x, "y": y, "travel": travel, "name": name, "scale": scale, "set": set_})
 
 
-def lamp(pid, x, y, r=4.2, color="red", on=False):
-    CONTROLS.append({"id": pid, "type": "lamp", "x": x, "y": y, "r": r, "color": color, "on": on})
+def lamp(pid, x, y, r=4.2, color="red", on=False, style="jewel"):
+    """A lamp on its own: a jewel (r: its lens), or a small LED like the keys' (style "led")."""
+    CONTROLS.append({"id": pid, "type": "lamp", "x": x, "y": y, "r": r, "color": color, "on": on, "style": style})
 
 
 # ============================================================ TOP ROW: the edited layer
@@ -175,17 +176,32 @@ SUBHEADS.append(("EDIT", 52, 176, 524))
 key("layer_1", 82, 556, "LAYER 1", w=44, h=26, set_=True, shift="SWAP")
 key("layer_2", 146, 556, "LAYER 2", w=44, h=26, shift="COPY")
 knob("glide", "med", 238, 552, "GLIDE", set_=0.15)
+# Each layer's voice mode, in a printed grid: a key per layer steps it, a lamp under each mode.
+SUBHEADS.append(("VOICE MODE", 52, 208, 602))
+VOICE_MODES = ["POLY", "SOLO", "LEGATO", "UNISON", "POLY 2"]
+VM_X = [100, 128, 156, 184, 212]
+VM_Y = [630, 654]
+for i, s_ in enumerate(VOICE_MODES):
+    PRINT.append((s_, VM_X[i], 616, 6.9, "navy", "mm"))
+for n, yy in zip((1, 2), VM_Y):
+    PRINT.append((str(n), 48, yy, 8.4, "navy", "mm"))
+    key(f"vmode_{n}", 72, yy, "", w=26, h=16, led=False)
+    for k, xx in enumerate(VM_X):
+        lamp(f"vm{n}_{k}", xx, yy, r=1.6, style="led", on=(k == (0 if n == 1 else 3)))
 PLAY_MODES = ["SINGLE", "DUAL", "SPLIT", "ONE-TWO", "ROTATE", "RANDOM", "CHAOS", "CASCADE"]
-ring("play_mode", 96, 690, "PLAY MODE", [str(i + 1) for i in range(8)], 36.0, set_=2, shift="ZONES", name_dy=50)
-PLAY_LEGEND_XY = (154, 646)
+ring("play_mode", 96, 720, "PLAY MODE", [str(i + 1) for i in range(8)], 36.0, set_=2, shift="ZONES", name_dy=44)
+PLAY_LEGEND_XY = (154, 678)
 PLAY_LEGEND_STEP = 12.6
 
 # ---- ARPEGGIATOR
 for i, (pid, lab) in enumerate([("arp_on", "ON"), ("arp_hold", "HOLD"), ("arp_mode", "MODE"), ("arp_range", "RANGE")]):
     key(pid, 329 + i * 46, 556, lab, set_=(pid == "arp_on"))
-key("tap", 334, 666, "TAP", w=34, h=24, shift="DIVISION")
-knob("clock", "med", 404, 660, "TEMPO", labels([(0, "40"), (1, "240")]), T10, set_=0.45)
-key("arp_sync", 470, 666, "HOST", set_=True)
+key("tap", 334, 640, "TAP", w=34, h=24, shift="DIVISION")
+knob("clock", "med", 404, 634, "TEMPO", labels([(0, "40"), (1, "240")]), T10, set_=0.45)
+key("arp_sync", 470, 640, "HOST", set_=True)
+# Variation: DICE rolls a new set of small differences, note by note; VARY sets how much of it plays.
+key("dice", 352, 726, "DICE", w=34, h=22)
+knob("vary", "small", 446, 722, "VARY", set_=0.3)
 
 # ---- EFFECTS (the edited layer's)
 knob("fx_drive", "small", 556, 558, "DRIVE", set_=0.3)
@@ -205,8 +221,10 @@ for i, x in enumerate(ENC_X):
                      "labels": [], "ticks": [], "set": [0.1, 0.4, 0.7, 0.25][i], "encoder": True, "shift": None})
 key("shift", 798, 548, "SHIFT", w=40, h=24, led=False, cap="shift")
 PRINT += [("HOLD + ANY CONTROL", 798, 584, 6.9, "shift", "mm"), ("OPENS ITS PAGE", 798, 593, 6.9, "shift", "mm")]
-key("compare", 798, 650, "COMPARE", shift="INIT")
-key("write", 798, 734, "WRITE", shift="NAME")
+key("assign", 798, 640, "ASSIGN", w=40, h=22)
+PRINT.append(("THEN TURN A KNOB", 798, 670, 6.9, "navy", "mm"))
+key("compare", 778, 742, "COMPARE", shift="INIT")
+key("write", 822, 742, "WRITE", shift="NAME")
 key("page_prev", 1196, 548, "", w=30, h=19, led=False)
 key("page_next", 1240, 548, "", w=30, h=19, led=False)
 PRINT += [("◂", 1196, 548, 9.0, "glyph", "mm"), ("▸", 1240, 548, 9.0, "glyph", "mm"), ("PAGE", 1218, 567, 7.6, "navy", "mm")]
@@ -224,6 +242,14 @@ for n, x in zip((1, 2), MIXC):
     knob(f"level{n}", "small", x, 562, "LEVEL", set_=[0.75, 0.6][n - 1])
     knob(f"pan{n}", "small", x, 638, "PAN", labels([(0, "L"), (1, "R")]), ticks(10), set_=[0.38, 0.64][n - 1])
     knob(f"send{n}", "small", x, 714, "FX SEND", set_=[0.3, 0.45][n - 1])
+# Each layer's voices, a ladder of lamps between the columns: lit while a voice sounds.
+LADDER_X = [1372, 1396]
+LADDER_Y0, LADDER_STEP = 744, 12.6
+for n, x in zip((1, 2), LADDER_X):
+    for v in range(16):
+        lamp(f"v{n}_{v + 1}", x, LADDER_Y0 - v * LADDER_STEP, r=1.5, style="led", on=(v < [3, 2][n - 1]))
+PRINT += [("1", 1384, LADDER_Y0, 6.6, "navy", "mm"), ("16", 1384, LADDER_Y0 - 15 * LADDER_STEP, 6.6, "navy", "mm"),
+          ("VOICES", 1384, 766, 7.4, "navy", "mm")]
 
 # ---- OUTPUT
 knob("volume", "large", 1549, 576, "VOLUME", set_=0.8)
@@ -257,8 +283,8 @@ if DRAWER_OPEN:
     key("d_close", 1500, dy + 6, "CLOSE", w=40, h=22, led=False)
 
 # What the display and the filter-type window show on the mockup.
-DISPLAY_SHOW = {"title": "MOD  MATRIX", "page": "1 / 14",
-                "cols": [("SLOT", "1", 0.0), ("SOURCE", "LFO 2", 0.25), ("DEST", "Cutoff", 0.4), ("AMOUNT", "+32", 0.75)]}
+DISPLAY_SHOW = {"title": "MOD  MATRIX 1", "page": "1 / 19",
+                "cols": [("SOURCE", "LFO 2", 0.25), ("DEST", "Pitch", 0.85), ("AMOUNT", "+6", 0.55), ("VIA", "Mod Wheel", 0.9)]}
 TYPE_SHOW = "4PLP"
 # Other pages, for the canvas: what holding SHIFT and touching a control opens.
 DISPLAY_PAGES = {

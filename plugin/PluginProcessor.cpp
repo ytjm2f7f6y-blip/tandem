@@ -135,6 +135,12 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     odrive_.store(engine_.layer(0).overdriven(), std::memory_order_relaxed);
     sounding_.store(engine_.layer(0).soundingVoices(), std::memory_order_relaxed);
+    for (int L = 0; L < tp::kLayersExposed; ++L) {
+        const auto& layer = engine_.layer(L);
+        vcount_[size_t(L)].store(layer.voiceCount(), std::memory_order_relaxed);
+        for (int v = 0; v < kMeterVoices; ++v) meters_[size_t(L)][size_t(v)].store(layer.voiceMeter(v), std::memory_order_relaxed);
+    }
+    for (int d = 0; d < td::kNumModDests; ++d) modNow_[size_t(d)].store(engine_.layer(0).modNow(d), std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------

@@ -45,6 +45,13 @@ inline const Preset kFactory[] = {
     // LFO 1 at audio rate following the keys, into OSC 2's channel; OSC 2 also rattles the filter.
     {"hf grit", {{"osc1_wave", 2}, {"osc2_level", 0.42f}, {"osc2_wave", 0}, {"lfo1_wave", 11}, {"lfo1_mode", 2}, {"lfo1_rate", 0.6f}, {"vcf_src", 2},
                  {"vcf_mod", 0.32f}, {"cutoff", 0.52f}, {"resonance", 0.36f}, {"e2_decay", 0.45f}, {"e2_sustain", 0.6f}, {"fx_send", 0.2f}, {nullptr, 0}}},
+    // The new matrix and variation: NOTE RND brightens every fourth note; the wheel brings in a vibrato (via);
+    // DICE's roll 0417 at VARY 4 keeps a repeated phrase from sounding like a machine.
+    {"dice keys", {{"osc2_level", 0.35f}, {"osc2_wave", 3}, {"osc2_fine", 5}, {"cutoff", 0.52f}, {"resonance", 0.16f}, {"vcf_mod", 0.38f},
+                   {"e1_decay", 0.5f}, {"e1_sustain", 0.2f}, {"e2_decay", 0.58f}, {"e2_sustain", 0.55f}, {"e2_release", 0.45f}, {"vel_vca", 0.35f},
+                   {"rnd_count", 4}, {"m1_src", 12}, {"m1_dst", 2}, {"m1_amt", 0.12f},
+                   {"lfo2_trig", 2}, {"lfo2_pitch", 0.0f}, {"lfo2_rate", 0.72f}, {"m2_src", 3}, {"m2_dst", 16}, {"m2_amt", 0.03f}, {"m2_via", 11},
+                   {"vary", 0.4f}, {"vary_seed", 417}, {"fx_send", 0.28f}, {"fx_balance", 0.55f}, {"drift", 0.22f}, {nullptr, 0}}},
 };
 constexpr int kNumFactory = int(sizeof(kFactory) / sizeof(kFactory[0]));
 

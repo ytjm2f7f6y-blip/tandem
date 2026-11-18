@@ -237,7 +237,10 @@ def build():
                 R.place(R.fader_cap(), x, ty, z + 0.6)
         elif t == "lamp":
             on = c["on"] if not STATE else (STATE == "lit" or c["id"] == "power")
-            R.place(R.jewel(c["color"], lit=on, r=c["r"]), x, y, z)
+            if c.get("style") == "led":
+                R.place(led_obj(on, r=c["r"]), x, y, z)
+            else:
+                R.place(R.jewel(c["color"], lit=on, r=c["r"]), x, y, z)
     return sc
 
 

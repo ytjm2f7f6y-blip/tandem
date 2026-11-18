@@ -48,6 +48,10 @@ public:
     void touch(const juce::String& key);           // as if that control had just been moved
     void openPageFor(const char* controlId);       // as if SHIFT and that control
     void latchShift() { shift_ = true; repaint(); }
+    void latchAssign() { assign_ = true; repaint(); }
+    void rollDice();                               // DICE: a new variation
+    bool assignFor(const char* controlId, float amount);     // as if ASSIGN, then that knob turned to this amount (-1..1)
+    int assignedSlot() const { return assignSlot_; }
 
     static const std::vector<DisplayPage>& pages(int menu);
     static const char* const kMenuNames[TandemProcessor::kMenus];
@@ -88,6 +92,18 @@ private:
     void phosphor(juce::Graphics&, const juce::String&, juce::Rectangle<float>, float size, juce::Justification, float alpha = 1.0f);
 
     void drawKnob(juce::Graphics&, int ci);
+    void drawModMarks(juce::Graphics&, int ci);    // a modulated control's dot, and its range while touched or assigning
+
+    // ---- the matrix, from the panel
+    int destOf(int ci) const;                      // the matrix destination a control stands for (0: none)
+    float destScale(int ci) const;                 // how far one unit of modulation moves it, for the arcs
+    bool matrixPage() const;                       // the display shows a matrix slot (its page index is the slot)
+    juce::RangedAudioParameter* slotParam(int slot, int field) const;     // field: 0 source, 1 dest, 2 amount, 3 via, 4 curve
+    float slotValue(int slot, int field) const;    // in the parameter's own units
+    int freeSlotFor(int dest) const;
+    bool startAssign(int ci);                      // ASSIGN, then a knob: a slot for it; the drag sets its amount
+    float lampAlpha(int ci) const;                 // the voice lamps: how bright
+    void refreshDepths();
     void drawLed(juce::Graphics&, int li);
     void drawSprite(juce::Graphics&, const juce::Image&, float cx, float cy, float wPt, float hPt, int frame = 0, int frames = 1);
     juce::Font font(float h) const;
@@ -109,6 +125,11 @@ private:
     juce::String touchedKey_, noticeText_;
     double touchedUntil_ = 0, noticeUntil_ = 0;
     bool shift_ = false;
+    bool assign_ = false, assigning_ = false;     // ASSIGN latched; a knob being turned to set a new slot's amount
+    int assignSlot_ = -1;
+    double diceUntil_ = 0;
+    float depth_[td::kNumModDests] = {};          // how much each destination is modulated (the sum of its slots' amounts)
+    juce::RangedAudioParameter* slot_[td::kMatrixSlots][5] = {};
 
     int drag_ = kNone, dragCol_ = -1, pressed_ = kNone;
     float dragStartNorm_ = 0, dragAccum_ = 0, dragSteps_ = 0;

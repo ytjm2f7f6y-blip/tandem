@@ -332,7 +332,8 @@ static void testStability() {
         p.vcaSrc = int(r.uni() * 3); p.e3Mode = int(r.uni() * 3);
         p.voiceMode = int(r.uni() * 5); p.unisonMode = int(r.uni() * 5); p.voices = 2 + 2 * int(r.uni() * 4);
         p.drift = r.uni(); p.panSpread = r.uni(); p.portamento = r.uni() * 0.5f;
-        for (int k = 0; k < kMatrixSlots; ++k) { p.mSrc[k] = int(r.uni() * kNumModSources); p.mDst[k] = int(r.uni() * kNumModDests); p.mAmt[k] = r.bi(); }
+        for (int k = 0; k < kMatrixSlots; ++k) { p.mSrc[k] = int(r.uni() * kNumModSources); p.mDst[k] = int(r.uni() * kNumModDests); p.mAmt[k] = r.bi(); p.mVia[k] = int(r.uni() * kNumModSources); p.mCrv[k] = int(r.uni() * 4); }
+        p.vary = r.uni(); p.varySeed = int(r.next() % 1000u); p.rndCount = int(r.uni() * 9);
         p.drvMode = int(r.uni() * 4); p.drvAmt = r.uni(); p.chOn = r.uni() > 0.5f; p.eqLow = r.bi() * 15; p.eqMid = r.bi() * 15; p.eqHigh = r.bi() * 15;
         p.fxSend = r.uni(); p.fxBal = r.uni(); p.dlyFb = r.uni(); p.dlyMode = int(r.uni() * 3); p.rvSize = r.uni(); p.freeze = r.uni() > 0.8f;
         e.layer(0).setParams(p);
@@ -373,6 +374,161 @@ static void testCost() {
     }
 }
 
+// The matrix: twelve slots, a VIA source scaling the amount, and the curves.
+static void testMatrix() {
+    std::printf("matrix\n");
+    auto modAt = [](LayerParams p, float vel, float wheel) {
+        Engine e; e.prepare(48000, 512);
+        e.layer(0).setParams(p);
+        e.modWheel(wheel);
+        std::vector<float> L(512), R(512);
+        e.noteOn(60, vel);
+        e.render(L.data(), R.data(), 512);
+        return e.layer(0).modNow(kMdCutoff);
+    };
+    LayerParams p = plain();
+    p.mSrc[11] = kMsVelocity; p.mDst[11] = kMdCutoff; p.mAmt[11] = 0.5f; p.mVia[11] = kMsModWheel;
+    const float none = modAt(p, 0.7f, 0.0f), full = modAt(p, 0.7f, 1.0f), half = modAt(p, 0.7f, 0.5f);
+    check(std::abs(none) < 1e-6f && std::abs(full - 0.35f) < 1e-4f && std::abs(half - 0.175f) < 1e-4f,
+          fmt("slot 12, velocity 0.7 x 0.5 via the wheel: %.4f at 0, %.4f at half, %.4f at full", none, half, full));
+    p.mVia[11] = kMsNone; p.mCrv[11] = kCurveExp;
+    const float ex = modAt(p, 0.7f, 0.0f);
+    check(std::abs(ex - 0.245f) < 1e-4f, fmt("EXP squares the source: %.4f (want 0.2450)", ex));
+    p.mCrv[11] = kCurveStep;
+    const float st = modAt(p, 0.7f, 0.0f);
+    check(std::abs(st - 4.0f / 12.0f) < 1e-4f, fmt("STEP rounds to twelfths: 0.35 becomes %.4f (want 0.3333)", st));
+    // SMOOTH: a source that jumps (the wheel) arrives over tens of milliseconds, not at once.
+    {
+        LayerParams q = plain();
+        q.mSrc[0] = kMsModWheel; q.mDst[0] = kMdCutoff; q.mAmt[0] = 1.0f; q.mCrv[0] = kCurveSmooth;
+        Engine e; e.prepare(48000, 64);
+        e.layer(0).setParams(q);
+        std::vector<float> L(64), R(64);
+        e.noteOn(60, 1.0f);
+        for (int i = 0; i < 20; ++i) e.render(L.data(), R.data(), 64);
+        e.modWheel(1.0f);
+        e.render(L.data(), R.data(), 64);
+        const float early = e.layer(0).modNow(kMdCutoff);
+        for (int i = 0; i < 200; ++i) e.render(L.data(), R.data(), 64);
+        const float late = e.layer(0).modNow(kMdCutoff);
+        check(early > 0.0f && early < 0.1f && late > 0.98f, fmt("SMOOTH: the wheel thrown to full gives %.3f after 1.3 ms, %.3f after 268 ms", early, late));
+    }
+    // PITCH: a slot of +1/12 in steps raises the note a semitone.
+    {
+        LayerParams q = plain();
+        q.mSrc[5] = kMsVelocity; q.mDst[5] = kMdPitch; q.mAmt[5] = 1.0f / 12.0f; q.mCrv[5] = kCurveStep;
+        Engine e; e.prepare(48000, 512);
+        e.layer(0).setParams(q);
+        const auto x = renderNote(e, 69, 0.5, 48000);
+        const double hz = zeroCrossHz(x, 48000, 4800);
+        check(std::abs(1200 * std::log2(hz / 466.164)) < 1.0, fmt("pitch destination, +1 semitone on A4: %.2f Hz (want 466.16)", hz));
+    }
+    // Removing the last slot leaves no modulation behind.
+    {
+        Engine e; e.prepare(48000, 512);
+        LayerParams q = plain();
+        q.mSrc[0] = kMsVelocity; q.mDst[0] = kMdCutoff; q.mAmt[0] = 1.0f;
+        e.layer(0).setParams(q);
+        std::vector<float> L(512), R(512);
+        e.noteOn(60, 1.0f);
+        e.render(L.data(), R.data(), 512);
+        q.mSrc[0] = kMsNone;
+        e.layer(0).setParams(q);
+        e.render(L.data(), R.data(), 512);
+        e.render(L.data(), R.data(), 512);
+        check(e.layer(0).modNow(kMdCutoff) == 0.0f, fmt("emptying the matrix clears its output: %.3f", e.layer(0).modNow(kMdCutoff)));
+    }
+}
+
+// NOTE RND: a value per note; with a count, a cycle that long, again from the top after a pause.
+static void testNoteRnd() {
+    std::printf("note random\n");
+    auto run = [](int count, int notes, std::vector<float>& out, bool pause = false) {
+        Engine e; e.prepare(48000, 256);
+        LayerParams p = plain();
+        p.rndCount = count;
+        p.mSrc[0] = kMsNoteRnd; p.mDst[0] = kMdCutoff; p.mAmt[0] = 1.0f;
+        e.layer(0).setParams(p);
+        std::vector<float> L(256), R(256);
+        for (int k = 0; k < notes; ++k) {
+            if (pause && k == notes / 2) for (int i = 0; i < 300; ++i) e.render(L.data(), R.data(), 256);     // 1.6 s, no keys
+            e.noteOn(60 + k, 1.0f);
+            e.render(L.data(), R.data(), 256);
+            out.push_back(e.layer(0).modNow(kMdCutoff));
+            e.noteOff(60 + k);
+            e.render(L.data(), R.data(), 256);
+        }
+    };
+    std::vector<float> a, b, c;
+    run(3, 7, a);
+    check(a[0] == a[3] && a[1] == a[4] && a[2] == a[5] && a[0] != a[1] && a[1] != a[2],
+          fmt("count 3 cycles: %.3f %.3f %.3f, then", a[0], a[1], a[2]) + fmt(" %.3f %.3f ...", a[3], a[4]));
+    run(0, 12, b);
+    int distinct = 0;
+    for (size_t i = 1; i < b.size(); ++i) distinct += b[i] != b[i - 1];
+    float lo = 1, hi = -1;
+    for (float v : b) { lo = std::min(lo, v); hi = std::max(hi, v); }
+    check(distinct == 11 && lo >= -1.0f && hi <= 1.0f, fmt("free: 12 notes, %.0f changes, range %.2f .. %.2f", distinct, lo, hi));
+    run(4, 6, c, true);
+    check(c[3] == c[0] && c[4] == c[1], fmt("a pause starts the cycle again: %.3f after the pause, %.3f at the start", c[3], c[0]));
+}
+
+// VARY: nothing at 0; at 1, notes differ, the same way each time the phrase is played after a pause.
+static void testVary() {
+    std::printf("vary\n");
+    auto phrase = [](float vary, int seed, std::vector<float>& cut, std::vector<int>& notes) {
+        Engine e; e.prepare(48000, 256);
+        LayerParams p = plain();
+        p.voices = 8; p.vary = vary; p.varySeed = seed;
+        e.layer(0).setParams(p);
+        std::vector<float> L(256), R(256);
+        for (int rep = 0; rep < 2; ++rep) {
+            for (int k = 0; k < 8; ++k) {
+                e.noteOn(48 + 3 * k, 0.8f);
+                e.render(L.data(), R.data(), 256);
+                const Voice* v = nullptr;
+                for (int i = 0; i < 8; ++i) { const Voice& w = e.layer(0).voice(i); if (w.active && w.gate && w.key == 48 + 3 * k) v = &w; }
+                cut.push_back(v ? v->varyCut + 100.0f * (v->vel - 0.8f) + 1000.0f * (v->varyEnvK - 1.0f) : -999.0f);
+                notes.push_back(v ? v->note - v->key : -99);
+                e.noteOff(48 + 3 * k);
+                e.render(L.data(), R.data(), 256);
+            }
+            for (int i = 0; i < 400; ++i) e.render(L.data(), R.data(), 256);      // a pause
+        }
+    };
+    std::vector<float> c0, c1, c2;
+    std::vector<int> n0, n1, n2;
+    phrase(0.0f, 7, c0, n0);
+    bool flat = true;
+    for (size_t i = 0; i < c0.size(); ++i) flat = flat && c0[i] == 0.0f && n0[i] == 0;
+    check(flat, "VARY at 0: every note exactly as played");
+    phrase(1.0f, 7, c1, n1);
+    bool same = true, varied = false;
+    for (size_t i = 0; i < 8; ++i) { same = same && c1[i] == c1[i + 8] && n1[i] == n1[i + 8]; varied = varied || c1[i] != c1[0]; }
+    int jumps = 0;
+    for (int n : n1) jumps += n != 0;
+    check(same && varied, fmt("VARY at full: notes vary, and the phrase repeats the same after a pause (%.0f octave jumps in 16 notes)", jumps));
+    phrase(1.0f, 8, c2, n2);
+    bool differ = false;
+    for (size_t i = 0; i < 8; ++i) differ = differ || c2[i] != c1[i];
+    check(differ, "a new DICE roll gives a different pattern");
+    // Octave jumps release cleanly: the key that went up stops its voice, whatever note it played.
+    Engine e; e.prepare(48000, 256);
+    LayerParams p = plain(); p.voices = 8; p.vary = 1.0f; p.e2R = 0.0f;
+    std::vector<float> L(256), R(256);
+    int stuck = 0;
+    for (int seed = 0; seed < 30; ++seed) {
+        p.varySeed = seed;
+        e.layer(0).setParams(p);
+        for (int k = 0; k < 16; ++k) e.noteOn(40 + k, 1.0f);
+        e.render(L.data(), R.data(), 256);
+        for (int k = 0; k < 16; ++k) e.noteOff(40 + k);
+        for (int i = 0; i < 40; ++i) e.render(L.data(), R.data(), 256);
+        stuck += e.layer(0).soundingVoices();
+    }
+    check(stuck == 0, fmt("30 rolls, 16 notes each, all let go: %.0f voices left sounding", stuck));
+}
+
 int main() {
     testPitch();
     testAliasing();
@@ -383,6 +539,9 @@ int main() {
     testGlide();
     testDecimator();
     testDelay();
+    testMatrix();
+    testNoteRnd();
+    testVary();
     testStability();
     testCost();
     std::printf(failures ? "%d FAILED\n" : "all passed\n", failures);

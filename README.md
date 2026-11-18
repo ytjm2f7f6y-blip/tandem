@@ -23,6 +23,25 @@ each section, push keys with lamps, and an amber display with four encoders.
   CUTOFF: the filter routing, type, resonance type and keytrack; SHIFT + VCA: envelope
   3). Right-clicking a control does the same. The red-orange legends are special
   jobs: SHIFT + a patch key picks the bank, SHIFT + COMPARE starts from a blank patch.
+- **The mod matrix** has twelve slots, one per MOD page: SOURCE, DEST, AMOUNT, and VIA (a
+  second source that scales the amount: put the mod wheel there and it brings the
+  modulation in). SHIFT turns the AMOUNT column into the slot's curve: linear, exp,
+  steps (twelfths: semitones on pitch) or smooth. **ASSIGN** is the quick way in: click
+  it, then turn the knob you want to modulate; a free slot opens with that knob as the
+  destination, LFO 1 as the source, and the amount following your turn.
+- **Modulated knobs** carry a small amber dot at the foot of their scale. While you touch
+  one, or while ASSIGN is lit, an arc over the scale shows how far the matrix can move it,
+  and a moving tick shows where it is now.
+- **NOTE RND** is a matrix source: a new random value for every note, or (NOTE RANDOM
+  page) a cycle of 1 to 8 values that starts again after a second's pause.
+- **VOICE MODE** (in PERFORMANCE): a key per layer steps poly, solo, legato, unison and
+  poly 2; the lamps show each layer's mode, and you can click a lamp. The **voice lamps**
+  in LAYER MIX light while each voice sounds, brighter as it plays louder.
+- **DICE and VARY** (in the arpeggiator box): DICE rolls a pattern of small differences
+  (velocity, envelope times, brightness; past 7 on VARY, the odd octave) that steps on
+  with each note; VARY sets how much you hear, from none at 0. The roll is saved with the
+  patch, and a second's pause starts the pattern again, so a phrase varies the same way
+  each time.
 - **Patches:** eight keys and eight banks. Right-click a patch key (or click the top
   line of the display) for the whole list. WRITE saves the sound as one of yours
   (in Music / Rumpus Room Records / Tandem / Presets); its lamp blinks when the patch
@@ -36,7 +55,7 @@ each section, push keys with lamps, and an amber display with four encoders.
 
 | Stage | What | State |
 | --- | --- | --- |
-| 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the matrix, effects; the window; presets. The layer keys, play mode, arpeggiator and layer 2's mixer are on the panel but say "stage 2" | **this build** |
+| 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets. The layer keys, play mode, arpeggiator and layer 2's mixer, voice mode and lamps are on the panel but say "stage 2" | **this build** |
 | 2 | The second layer, the eight play modes (single, dual, split, one-two, rotate, random, chaos, cascade), an arpeggiator per layer, the side chain as EXT IN with the envelope follower | to do |
 | 3 | Importing your own single-cycle waves, matrix polish, more presets, final-quality render | to do |
 

@@ -21,6 +21,8 @@ struct Shot {
     const char* shiftFor = nullptr;       // a control, as if SHIFT and it
     bool drawer = false, shiftLatched = false;
     float scale = 1.0f;
+    bool assignLatched = false;
+    const char* assignTo = nullptr;       // a control, as if ASSIGN and that knob turned
 };
 
 void shot(const juce::String& dir, const Shot& s) {
@@ -37,6 +39,8 @@ void shot(const juce::String& dir, const Shot& s) {
     if (s.touched) te->touch(s.touched);
     if (s.shiftFor) te->openPageFor(s.shiftFor);
     if (s.shiftLatched) te->latchShift();
+    if (s.assignTo) { te->assignFor(s.assignTo, 0.45f); te->touch(juce::String("m") + juce::String(te->assignedSlot() + 1) + "_amt"); }
+    if (s.assignLatched) te->latchAssign();
     auto img = ed->createComponentSnapshot(ed->getLocalBounds(), true, 1.0f);
     juce::File f(dir + "/" + s.file);
     f.deleteFile();
@@ -56,5 +60,10 @@ int main(int argc, char** argv) {
     shot(dir, {"ui_drawer.png", 1, 0, 0, nullptr, nullptr, true});
     shot(dir, {"ui_shift.png", 3, 2, 8, nullptr, nullptr, false, true});
     shot(dir, {"ui_80.png", 1, 1, 2, nullptr, nullptr, false, false, 0.8f});
+    const int dice = tpre::kNumFactory - 1;
+    shot(dir, {"ui_dice_keys_matrix_via.png", dice, 2, 1});
+    shot(dir, {"ui_assign_latched.png", dice, 2, 0, nullptr, nullptr, false, false, 1.0f, true});
+    shot(dir, {"ui_shift_curve.png", dice, 2, 1, nullptr, nullptr, false, true});
+    shot(dir, {"ui_vary_page.png", dice, 0, 3, "vary"});
     return 0;
 }

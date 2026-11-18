@@ -35,6 +35,18 @@ SHIFT: click it, then touch any control, for that control's page (SHIFT
 same. Red-orange legends are their own jobs: SHIFT + a patch key picks
 the bank; SHIFT + COMPARE starts from a blank patch.
 
+The mod matrix: twelve slots, one per MOD page (SOURCE, DEST, AMOUNT,
+and VIA, a second source that scales the amount). SHIFT turns AMOUNT
+into the slot's curve. ASSIGN: click it, then turn the knob you want to
+modulate; a free slot opens for it. Modulated knobs carry an amber dot;
+touch one (or light ASSIGN) to see an arc for its range.
+
+VOICE MODE: a key per layer steps the mode; the lamps show it. The voice
+lamps in LAYER MIX light as each voice plays.
+
+DICE and VARY: DICE rolls a pattern of small note-to-note differences;
+VARY sets how much you hear (none at 0, the odd octave past 7).
+
 Patches: eight keys, eight banks. Right-click a patch key (or click the
 top line of the display) for the list. WRITE saves the sound as one of
 yours (its lamp blinks when the patch has changed). COMPARE flips
