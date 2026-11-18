@@ -359,6 +359,44 @@ int main() {
             CHECK(takes && q.sideChainConnected() && withIn > 1e-3 && without < withIn * 1e-3, "the side chain (EXT IN): with VCA ON/EXT, a held note sounds while the input does");
         }
 
+        // The mouse, as a host delivers it: a drag up on a knob turns it; a click on a ring steps it.
+        {
+            auto at = [](const char* id) {
+                for (int i = 0; i < layout::kNumControls; ++i)
+                    if (juce::String(layout::kControls[i].id) == id) return juce::Point<float>(layout::kControls[i].x, layout::kControls[i].y);
+                return juce::Point<float>();
+            };
+            auto src = juce::Desktop::getInstance().getMainMouseSource();
+            const auto t0 = juce::Time::getCurrentTime();
+            auto ev = [&](juce::Point<float> pos, juce::Point<float> down, bool dragged) {
+                return juce::MouseEvent(src, pos, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down,
+                                        t0, 1, dragged);
+            };
+            auto drag = [&](const char* id, float up) {
+                const auto c = at(id);
+                te->mouseDown(ev(c, c, false));
+                for (int k = 1; k <= 4; ++k) te->mouseDrag(ev(c.translated(0, -up * float(k) / 4.0f), c, true));
+                te->mouseUp(ev(c.translated(0, -up), c, true));
+            };
+            te->pressControl("layer_1");
+            TandemProcessor::set(p.param("resonance"), 0.0f);
+            drag("f_res", 44.0f);
+            const float res = p.value("resonance");
+            te->pressControl("layer_2");
+            TandemProcessor::set(p.param("resonance"), 0.0f);
+            drag("f_res", 22.0f);
+            const float res2 = p.value("resonance", 1), res1 = p.value("resonance", 0);
+            const int wave = juce::roundToInt(p.value("osc1_wave"));
+            const auto w = at("o1_wave");
+            te->mouseDown(ev(w, w, false));
+            te->mouseUp(ev(w, w, false));
+            std::printf("      a 44-point drag up on RESONANCE: %.3f; on layer 2, 22 points: %.3f (layer 1 kept %.3f)\n", res, res2, res1);
+            CHECK(std::abs(res - 0.2f) < 0.01f && std::abs(res2 - 0.1f) < 0.01f && std::abs(res1 - 0.2f) < 0.01f
+                      && juce::roundToInt(p.value("osc1_wave")) == (wave + 1) % 12,
+                  "the mouse: a drag turns a knob of the layer being edited; a click steps a ring");
+            te->pressControl("layer_1");
+        }
+
         // A factory sound can set layer 2 ("2:key") and the play mode.
         bool both = false;
         for (int i = 0; i < tpre::kNumFactory; ++i) {

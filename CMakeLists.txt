@@ -96,5 +96,13 @@ if(TD_BUILD_PLUGIN)
         target_include_directories(ui_snapshot PRIVATE plugin tests)
         target_compile_definitions(ui_snapshot PRIVATE ${TD_DEFINES} JucePlugin_VersionString="${PROJECT_VERSION}")
         target_link_libraries(ui_snapshot PRIVATE td_engine TandemData juce::juce_audio_utils juce::juce_recommended_config_flags)
+
+        # Mac: the installed Audio Unit, hosted through Core Audio as Logic hosts it (run after installing).
+        if(APPLE)
+            juce_add_console_app(au_host PRODUCT_NAME "au_host")
+            target_sources(au_host PRIVATE tests/au_host.cpp)
+            target_compile_definitions(au_host PRIVATE JUCE_PLUGINHOST_AU=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+            target_link_libraries(au_host PRIVATE juce::juce_audio_processors juce::juce_recommended_config_flags)
+        endif()
     endif()
 endif()
