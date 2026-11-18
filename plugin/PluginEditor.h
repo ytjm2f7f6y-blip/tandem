@@ -13,7 +13,8 @@
 // The rendered art, loaded once per process and shared by every open window.
 struct TandemArt {
     TandemArt();
-    juce::Image panel, drawer, leds, faderCap;
+    juce::Image panel, drawer, leds;
+    juce::Image faderCap[layout::kNumFaderCaps];
     juce::Image strip[layout::kNumStrips];
     int stripFrames[layout::kNumStrips] = {};
     juce::Typeface::Ptr legend;
@@ -79,7 +80,7 @@ public:
 
 private:
     friend class ControlProxy;
-    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001 };
+    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001, kPatchWin1 = 2002, kPatchWin2 = 2003 };
 
     void timerCallback() override;
 
@@ -111,7 +112,17 @@ private:
     void showPresetMenu();
     void showTypeMenu();
     void showSizeMenu();
-    void askPresetName();
+    void askPresetName(int what = 2);                // 0, 1: save that layer as a patch; 2: both, as a performance
+    void showWriteMenu();
+    // ---- each layer's patch window
+    void drawPatchWindow(juce::Graphics&, int layer);
+    void showLayerMenu(int layer);
+    void loadLayer(int index, int layer, int part);
+    juce::Rectangle<float> patchWin(int layer) const;
+    bool patchEdited_[2] = {false, false};
+    juce::String patchSeen_;
+    // ---- the drawer slides up over the bottom of the panel: its controls sit this far above where the layout puts them
+    float dy(int ci) const { return ci >= 0 && ci < layout::kNumControls && layout::kControls[ci].drawer ? -layout::kDrawerH : 0.0f; }
     std::unique_ptr<juce::AlertWindow> saveDialog_;
 
     // ---- the display

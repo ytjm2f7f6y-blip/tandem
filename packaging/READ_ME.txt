@@ -21,6 +21,9 @@ modes, an arpeggiator and its own effects.
 Top row: the sound of the layer you are editing. Bottom row: playing
 and programming.
 
+The two windows at the top name each layer's sound: click a name for the
+list and put any patch on either layer; the arrows step through them.
+
 LAYER 1 / LAYER 2: which layer the panel edits (the display's title says
 L1 or L2). SHIFT + LAYER 1 swaps them; SHIFT + LAYER 2 copies the one you
 are editing onto the other.
@@ -39,21 +42,21 @@ The side chain input is switched off in this build, so layer 1's EXT IN
 knob does nothing yet. Layer 2's EXT IN knob sets CASCADE's level.
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
-default; a tag beside them shows the value as you turn. Keys with lamps:
+default; a tag beside them shows the value as you turn. UNDO and REDO
+keys (or Cmd-Z) take edits back and forth. Keys with lamps:
 click to step through, or click a lamp to go straight to it. Lamp rings
 (waveforms, octave): click a lamp, or drag. Right-click any control for
-its menu. Undo: SHIFT + the page arrows, or Cmd-Z. Tab and the arrow
+its menu. Tab and the arrow
 keys work the panel from the keyboard; VoiceOver reads every control.
 
 The display: PERF, VOICE, MOD, ARP and FX each have pages (press again,
-or use the PAGE arrows). The four encoders under the display change the
-four columns above them; you can also drag a column. Moving any control
-shows its value for a moment.
+or use the PAGE arrows). Drag a column up or down (or scroll over it)
+to change it. Moving any control shows its value for a moment.
 
 SHIFT: click it, then touch any control, for that control's page (SHIFT
 + CUTOFF: routing, type, resonance type, keytrack). Red legends are its
-own jobs: SHIFT + a patch key picks the bank, SHIFT + COMPARE starts from
-a blank patch, SHIFT + the page arrows undo and redo.
+own jobs: SWAP and COPY on the layer keys, ZONES, DIVISION, INIT on
+COMPARE (a blank patch), NAME on WRITE.
 
 The mod matrix: twelve slots, one per MOD page (SOURCE, DEST, AMOUNT,
 and VIA, a second source that scales the amount). SHIFT turns AMOUNT
@@ -62,18 +65,17 @@ modulate; a free slot opens for it. Modulated knobs carry an amber dot;
 touch one (or light ASSIGN) to see an arc for its range.
 
 VOICE MODE: a key per layer steps the mode; the lamps show it. The voice
-lamps in LAYER MIX light as each voice plays.
+lamps in MIX light as each voice plays.
 
 DICE and VARY: DICE rolls a pattern of small note-to-note differences;
 VARY sets how much you hear (none at 0, the odd octave past 7).
 
-Patches: eight keys, eight banks (G and H use both layers; SHIFT + a
-bank key again reaches your own patches). Right-click a patch key (or click the
-top line of the display) for the list. WRITE saves the sound as one of
-yours (its lamp blinks when the patch has changed). COMPARE flips
-between the patch as edited and as stored.
+Whole sounds: click the name on the right of the display's top line.
+WRITE saves one layer as a patch, or both as a performance (its lamp
+blinks when something has changed). COMPARE flips between the sound
+as edited and as chosen.
 
-SETUP opens the drawer: master tune, transpose, velocity and pressure
+SETUP slides the drawer up: master tune, transpose, velocity and pressure
 response, MIDI channel per layer, sustain pedal polarity, AGE and size.
 
 Hover over any control for a note on what it does.

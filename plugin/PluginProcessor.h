@@ -57,14 +57,24 @@ public:
     static void set(juce::RangedAudioParameter* p, float value);      // in the parameter's own units, host told
 
     // ---- presets: factory, then the person's own files (message thread)
-    struct PresetEntry { juce::String name; bool factory = true; juce::File file; };
+    // A sound is a patch (one layer: it can go on either) or a performance (both layers and the play mode).
+    struct PresetEntry { juce::String name; bool factory = true; juce::File file; juce::String category; bool bothLayers = false; };
     std::vector<PresetEntry> presetList() const;
-    void loadPreset(int index);
+    void loadPreset(int index);                      // the whole instrument
     void stepPreset(int delta);
     juce::String presetName() const { return presetName_; }
     int presetIndex() const { return presetIndex_; }
     bool presetEdited() const;
-    juce::String saveUserPreset(const juce::String& name);
+    juce::String saveUserPreset(const juce::String& name);          // both layers, as a performance
+
+    // ---- each layer's sound: any patch on either layer; from a performance, either of its layers
+    void loadIntoLayer(int index, int layer, int part = 0);
+    void stepLayer(int layer, int delta);            // the next or previous patch, on that layer
+    std::vector<int> layerPatches() const;           // the one-layer sounds, in list order (indices into presetList())
+    juce::String layerName(int layer) const { return layerName_[size_t(layer & 1)]; }
+    int layerIndex(int layer) const { return layerIndex_[size_t(layer & 1)]; }
+    bool layerEdited(int layer) const;
+    juce::String saveLayerPatch(const juce::String& name, int layer);
     bool deleteUserPreset(int index);
     static juce::File presetFolder();
 
@@ -140,9 +150,19 @@ private:
     Setting ab_[2];
     juce::String abName_[2];
     int abIndex_[2] = {0, 0};
-    struct Snapshot { Setting values, snap; juce::String name; int index = 0; };
+    // What is on the layers, by name: kept with each undo step and each of A and B.
+    struct LayerNames { std::array<juce::String, 2> name{{"init", "init"}}; std::array<int, 2> index{{0, 0}}, part{{0, 0}}; std::array<Setting, 2> snap; };
+    struct Snapshot { Setting values, snap; juce::String name; int index = 0; LayerNames layers; };
     struct UndoStep { juce::String what; Snapshot before, after; double when = 0; };
-    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_}; }
+    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_, layerNames()}; }
+    LayerNames layerNames() const;
+    void setLayerNames(const LayerNames& n);
+    Setting layerValues(int layer) const;
+    void nameWhole();                                // the performance's name, from its layers'
+    std::array<juce::String, 2> layerName_{{"init", "init"}};
+    std::array<int, 2> layerIndex_{{0, 0}}, layerPart_{{0, 0}};
+    std::array<Setting, 2> layerSnap_;
+    LayerNames abLayers_[2];
     void restore(const Snapshot& s);
     std::vector<UndoStep> undo_, redo_;
     Snapshot pending_;

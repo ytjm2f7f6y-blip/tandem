@@ -35,6 +35,8 @@ TandemProcessor::TandemProcessor()
     presetSnap_ = currentSetting();
     ab_[0] = ab_[1] = presetSnap_;
     abName_[0] = abName_[1] = presetName_;
+    for (int L = 0; L < 2; ++L) layerSnap_[size_t(L)] = layerValues(L);
+    abLayers_[0] = abLayers_[1] = layerNames();
     engine_.prepare(48000, 512);
 }
 
@@ -235,10 +237,17 @@ juce::File TandemProcessor::presetFolder() {
 
 std::vector<TandemProcessor::PresetEntry> TandemProcessor::presetList() const {
     std::vector<PresetEntry> list;
-    for (int i = 0; i < tpre::kNumFactory; ++i) list.push_back({tpre::kFactory[i].name, true, {}});
+    for (int i = 0; i < tpre::kNumFactory; ++i) {
+        const juce::String cat(tpre::kFactory[i].category);
+        list.push_back({tpre::kFactory[i].name, true, {}, cat, cat == "Both layers"});
+    }
     auto files = presetFolder().findChildFiles(juce::File::findFiles, false, "*.xml");
     files.sort();
-    for (const auto& f : files) list.push_back({f.getFileNameWithoutExtension(), false, f});
+    for (const auto& f : files) {
+        bool layer = false;                              // a patch saved from one layer; anything else is a performance
+        if (auto in = f.createInputStream()) layer = in->readString().contains("kind=\"layer\"");
+        list.push_back({f.getFileNameWithoutExtension(), false, f, layer ? "Yours" : "Your performances", !layer});
+    }
     return list;
 }
 
@@ -267,6 +276,136 @@ void TandemProcessor::loadPreset(int index) {
     presetIndex_ = index;
     presetName_ = list[size_t(index)].name;
     presetSnap_ = currentSetting();
+    const bool both = list[size_t(index)].bothLayers;     // the layers' windows: a performance on both, a patch on layer 1
+    for (int L = 0; L < 2; ++L) {
+        layerName_[size_t(L)] = both ? list[size_t(index)].name + " (" + juce::String(L + 1) + ")" : (L == 0 ? list[size_t(index)].name : juce::String("init"));
+        layerIndex_[size_t(L)] = both || L == 0 ? index : 0;
+        layerPart_[size_t(L)] = both ? L : 0;
+        layerSnap_[size_t(L)] = layerValues(L);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Each layer's sound
+TandemProcessor::Setting TandemProcessor::layerValues(int layer) const {
+    Setting v;
+    for (const auto& k : layerKeys_) if (auto* q = param(k, layer)) v.push_back(q->convertFrom0to1(q->getValue()));
+    return v;
+}
+
+bool TandemProcessor::layerEdited(int layer) const {
+    const auto now = layerValues(layer);
+    const auto& was = layerSnap_[size_t(layer & 1)];
+    if (was.size() != now.size()) return false;
+    for (size_t i = 0; i < now.size(); ++i)
+        if (std::abs(now[i] - was[i]) > 1e-4f * (1.0f + std::abs(now[i]))) return true;
+    return false;
+}
+
+std::vector<int> TandemProcessor::layerPatches() const {
+    std::vector<int> v;
+    const auto list = presetList();
+    for (int i = 0; i < int(list.size()); ++i) if (!list[size_t(i)].bothLayers) v.push_back(i);
+    return v;
+}
+
+void TandemProcessor::nameWhole() {
+    const auto strip = [](juce::String n) { return n.endsWith(")") && n.contains(" (") ? n.upToLastOccurrenceOf(" (", false, false) : n; };
+    const auto a = strip(layerName_[0]), b = strip(layerName_[1]);
+    presetName_ = a == b ? a : (b == "init" ? a : a + " + " + b);
+    presetIndex_ = -1;
+}
+
+void TandemProcessor::loadIntoLayer(int index, int layer, int part) {
+    const auto list = presetList();
+    if (index < 0 || index >= int(list.size())) return;
+    layer = juce::jlimit(0, 1, layer);
+    part = juce::jlimit(0, 1, part);
+    Setting s = currentSetting();
+    auto slot = [&](juce::RangedAudioParameter* q) -> float* {
+        const auto it = std::find(all_.begin(), all_.end(), q);
+        return it == all_.end() ? nullptr : &s[size_t(it - all_.begin())];
+    };
+    for (const auto& k : layerKeys_)                      // the layer starts from its defaults
+        if (auto* q = param(k, layer)) if (auto* v = slot(q)) *v = q->convertFrom0to1(q->getDefaultValue());
+    const auto& e = list[size_t(index)];
+    if (e.factory) {
+        for (const auto& kv : tpre::kFactory[index].s) {
+            if (kv.key == nullptr) break;
+            juce::String key(kv.key);
+            int from = 0;
+            if (key.startsWith("2:")) { from = 1; key = key.substring(2); }
+            if (tp::isPerfId(key) || tp::isSetupId(key) || key == tp::kVolumeId || from != part) continue;
+            if (auto* v = slot(param(key, layer))) *v = kv.v;
+        }
+    } else {
+        auto xml = juce::XmlDocument::parse(e.file);
+        if (!xml || !xml->hasTagName("TandemPreset")) return;
+        const juce::String pre = "l" + juce::String(part + 1) + "_";
+        for (auto* p : xml->getChildWithTagNameIterator("p")) {
+            const auto id = p->getStringAttribute("id");
+            if (id.startsWith(pre))
+                if (auto* v = slot(param(id.substring(pre.length()), layer))) *v = float(p->getDoubleAttribute("v"));
+        }
+    }
+    applySetting(s);
+    layerName_[size_t(layer)] = e.bothLayers ? e.name + " (" + juce::String(part + 1) + ")" : e.name;
+    layerIndex_[size_t(layer)] = index;
+    layerPart_[size_t(layer)] = part;
+    layerSnap_[size_t(layer)] = layerValues(layer);
+    nameWhole();
+    presetSnap_ = currentSetting();
+}
+
+void TandemProcessor::stepLayer(int layer, int delta) {
+    const auto v = layerPatches();
+    if (v.empty()) return;
+    const int n = int(v.size());
+    int at = -1;
+    for (int i = 0; i < n; ++i) if (v[size_t(i)] == layerIndex_[size_t(layer & 1)]) at = i;
+    const int next = at < 0 ? (delta > 0 ? 0 : n - 1) : ((at + delta) % n + n) % n;
+    loadIntoLayer(v[size_t(next)], layer, 0);
+}
+
+juce::String TandemProcessor::saveLayerPatch(const juce::String& rawName, int layer) {
+    const auto name = juce::File::createLegalFileName(rawName.trim());
+    if (name.isEmpty()) return "Give the patch a name.";
+    for (int i = 0; i < tpre::kNumFactory; ++i)
+        if (name.equalsIgnoreCase(tpre::kFactory[i].name)) return "That name belongs to a factory sound.";
+    const auto folder = presetFolder();
+    if (!folder.createDirectory()) return "Couldn't create " + folder.getFullPathName();
+    juce::XmlElement xml("TandemPreset");
+    xml.setAttribute("name", name);
+    xml.setAttribute("kind", "layer");
+    for (const auto& k : layerKeys_) {
+        auto* q = param(k, layer);
+        if (!q) continue;
+        const float v = q->convertFrom0to1(q->getValue()), def = q->convertFrom0to1(q->getDefaultValue());
+        if (std::abs(v - def) < 1e-6f) continue;
+        auto* e = xml.createNewChildElement("p");
+        e->setAttribute("id", tp::layerId(0, k));         // stored as layer 1's: it goes on either
+        e->setAttribute("v", double(v));
+    }
+    const auto file = folder.getChildFile(name + ".xml");
+    if (!xml.writeTo(file)) return "Couldn't write " + file.getFullPathName();
+    const auto list = presetList();
+    for (int i = 0; i < int(list.size()); ++i)
+        if (!list[size_t(i)].factory && list[size_t(i)].file == file) layerIndex_[size_t(layer & 1)] = i;
+    layerName_[size_t(layer & 1)] = name;
+    layerPart_[size_t(layer & 1)] = 0;
+    layerSnap_[size_t(layer & 1)] = layerValues(layer);
+    nameWhole();
+    return {};
+}
+
+TandemProcessor::LayerNames TandemProcessor::layerNames() const {
+    LayerNames n;
+    n.name = layerName_; n.index = layerIndex_; n.part = layerPart_; n.snap = layerSnap_;
+    return n;
+}
+
+void TandemProcessor::setLayerNames(const LayerNames& n) {
+    layerName_ = n.name; layerIndex_ = n.index; layerPart_ = n.part; layerSnap_ = n.snap;
 }
 
 void TandemProcessor::stepPreset(int delta) {
@@ -283,6 +422,7 @@ juce::String TandemProcessor::saveUserPreset(const juce::String& rawName) {
     if (!folder.createDirectory()) return "Couldn't create " + folder.getFullPathName();
     juce::XmlElement xml("TandemPreset");
     xml.setAttribute("name", name);
+    xml.setAttribute("kind", "performance");
     const Setting s = currentSetting();
     for (size_t i = 0; i < all_.size(); ++i) {
         const float def = all_[i]->convertFrom0to1(all_[i]->getDefaultValue());
@@ -311,10 +451,10 @@ bool TandemProcessor::deleteUserPreset(int index) {
 
 void TandemProcessor::selectAB(int slot) {
     if (slot == abSlot_) return;
-    ab_[abSlot_] = currentSetting(); abName_[abSlot_] = presetName_; abIndex_[abSlot_] = presetIndex_;
+    ab_[abSlot_] = currentSetting(); abName_[abSlot_] = presetName_; abIndex_[abSlot_] = presetIndex_; abLayers_[abSlot_] = layerNames();
     abSlot_ = slot;
     applySetting(ab_[slot]);
-    presetName_ = abName_[slot]; presetIndex_ = abIndex_[slot];
+    presetName_ = abName_[slot]; presetIndex_ = abIndex_[slot]; setLayerNames(abLayers_[slot]);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +487,7 @@ void TandemProcessor::restore(const Snapshot& s) {
     presetSnap_ = s.snap;
     presetName_ = s.name;
     presetIndex_ = s.index;
+    setLayerNames(s.layers);
 }
 
 bool TandemProcessor::undo() {
@@ -381,6 +522,11 @@ void TandemProcessor::getStateInformation(juce::MemoryBlock& destData) {
     state.setProperty("drawer", drawerOpen, nullptr);
     state.setProperty("presetName", presetName_, nullptr);
     state.setProperty("presetIndex", presetIndex_, nullptr);
+    for (int L = 0; L < 2; ++L) {
+        state.setProperty("layerName" + juce::String(L), layerName_[size_t(L)], nullptr);
+        state.setProperty("layerIndex" + juce::String(L), layerIndex_[size_t(L)], nullptr);
+        state.setProperty("layerPart" + juce::String(L), layerPart_[size_t(L)], nullptr);
+    }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -395,9 +541,16 @@ void TandemProcessor::setStateInformation(const void* data, int sizeInBytes) {
         drawerOpen = bool(state.getProperty("drawer", false));
         presetName_ = state.getProperty("presetName", "init").toString();
         presetIndex_ = int(state.getProperty("presetIndex", 0));
+        for (int L = 0; L < 2; ++L) {
+            layerName_[size_t(L)] = state.getProperty("layerName" + juce::String(L), L == 0 ? presetName_ : juce::String("init")).toString();
+            layerIndex_[size_t(L)] = int(state.getProperty("layerIndex" + juce::String(L), L == 0 ? presetIndex_ : 0));
+            layerPart_[size_t(L)] = int(state.getProperty("layerPart" + juce::String(L), 0));
+        }
         apvts.replaceState(state);
         presetSnap_ = currentSetting();
+        for (int L = 0; L < 2; ++L) layerSnap_[size_t(L)] = layerValues(L);
         ab_[0] = ab_[1] = presetSnap_; abName_[0] = abName_[1] = presetName_; abSlot_ = 0;
+        abLayers_[0] = abLayers_[1] = layerNames();
     }
 }
 

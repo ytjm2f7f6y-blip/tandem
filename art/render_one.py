@@ -209,6 +209,8 @@ def build():
         R.place(R.screw((i * 61 + 20) % 180), x, y, Z + 4.6)
     TW = L.TYPE_WIN
     R.place(R.display_box(TW["w"], TW["h"], "ftype", show=None if STATE else "type_show.png"), TW["x"], TW["y"], Z)
+    for i, PW in enumerate(getattr(L, "PATCH_WINS", [])):          # each layer's sound, by name
+        R.place(R.display_box(PW["w"], PW["h"], f"patch{i}", show=None if STATE else f"patch_show_{i}.png"), PW["x"], PW["y"], Z)
 
     glyphs = {(round(x), round(y)): s for s, x, y, size, ink, a in L.PRINT if ink == "glyph"}
     for c in L.CONTROLS:
@@ -234,7 +236,7 @@ def build():
             R.place(R.fader_plate(c["travel"]), x, y, z)
             if not STATE:
                 ty = y + c["travel"] / 2 - c["travel"] * c["set"]
-                R.place(R.fader_cap(), x, ty, z + 0.6)
+                R.place(R.fader_cap(T["caps"][CUR["box"]]), x, ty, z + 0.6)
         elif t == "lamp":
             on = c["on"] if not STATE else (STATE == "lit" or c["id"] == "power")
             if c.get("style") == "led":
@@ -302,13 +304,16 @@ def render_strip(name, kind, box_id, angles, samples):
     print("wrote", path, out.size, len(angles), "frames")
 
 
-def render_fader_cap(samples):
+FADER_BOXES = sorted({L.box_of(c["x"], c["y"]) for c in L.CONTROLS if c["type"] == "fader"})
+
+
+def render_fader_cap(samples, box):
     sc = R.sprite_scene(*L.FADER_BOX, catcher=True)
     sc.cycles.samples = samples
-    R.place(R.fader_cap(), 0, 0, 0.6)
+    R.place(R.fader_cap(T["caps"][box]), 0, 0, 0.6)
     os.makedirs(os.path.join(BUILD, "sprites"), exist_ok=True)
-    R.render_to(os.path.join(BUILD, "sprites", "fader_cap.png"))
-    print("wrote fader_cap")
+    R.render_to(os.path.join(BUILD, "sprites", f"fader_cap_{box}.png"))
+    print("wrote fader_cap", box)
 
 
 def render_crop(sc, x, y, w, h, path, fmt="JPEG"):
@@ -329,7 +334,8 @@ if __name__ == "__main__":
         names = list(specs) if STRIPS == "all" else STRIPS.split(",")
         for nm in names:
             if nm == "fader_cap":
-                render_fader_cap(R.SAMPLES or 64)
+                for box in FADER_BOXES:
+                    render_fader_cap(R.SAMPLES or 64, box)
                 continue
             kind, box_id, angles = specs[nm]
             render_strip(nm, kind, box_id, angles, R.SAMPLES or 64)

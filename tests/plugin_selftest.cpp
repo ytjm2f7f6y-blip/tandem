@@ -240,7 +240,7 @@ int main() {
         int focusable = 0;
         for (auto* c : te->getChildren()) focusable += c->getWantsKeyboardFocus();
         std::printf("      %d controls on the keyboard's path\n", focusable);
-        CHECK(focusable > 100, "Tab reaches every knob, fader and key");
+        CHECK(focusable > 85, "Tab reaches every knob, fader and key");
     }
 
     {   // Stage 2: the second layer, the play modes, the arpeggiators, the side chain.
@@ -499,6 +499,59 @@ int main() {
             if (juce::roundToInt(p.value("perf_mode")) != td::kPlaySingle) { both = true; break; }
         }
         CHECK(both, "factory sounds that use both layers");
+    }
+    {   // A sound on each layer: any patch on either; either layer of a two-layer sound; saved and recalled.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        const auto list = p.presetList();
+        auto find = [&](const char* n) { for (int i = 0; i < int(list.size()); ++i) if (list[size_t(i)].name == n) return i; return -1; };
+        p.loadPreset(find("warm pad"));
+        const float padCut = p.value("cutoff", 0);
+        p.loadIntoLayer(find("reese"), 1);
+        juce::String reeseKeys;
+        bool matches = true;
+        for (const auto& kv : tpre::kFactory[find("reese")].s) {
+            if (kv.key == nullptr) break;
+            matches = matches && std::abs(p.value(kv.key, 1) - kv.v) < 1e-3f;
+        }
+        CHECK(matches && std::abs(p.value("cutoff", 0) - padCut) < 1e-5f && p.layerName(0) == "warm pad" && p.layerName(1) == "reese"
+                  && p.presetName() == "warm pad + reese" && !p.layerEdited(1),
+              "a patch on layer 2 (reese under warm pad): layer 2 takes it all, layer 1 keeps its own");
+        const int was = p.layerIndex(1);
+        p.stepLayer(1, 1);
+        CHECK(p.layerIndex(1) == was + 1 && p.layerName(1) == list[size_t(was + 1)].name, "the arrows step layer 2 to the next patch");
+        p.loadIntoLayer(find("split bass pad"), 0, 1);       // the bass half of a two-layer sound, on layer 1
+        CHECK(juce::roundToInt(p.value("voice_mode", 0)) == 1 && juce::roundToInt(p.value("octave", 0)) == 1 && p.layerName(0) == "split bass pad (2)",
+              "either layer of a two-layer sound can go on a layer (split bass pad's bass, on layer 1)");
+        TandemProcessor::set(p.param("resonance", 0), 0.77f);
+        CHECK(p.layerEdited(0) && !p.layerEdited(1), "a layer knows when it has been changed (its window shows a *)");
+        const auto err = p.saveLayerPatch("selftest bass", 0);
+        const int mine = [&] { const auto l2 = p.presetList(); for (int i = 0; i < int(l2.size()); ++i) if (l2[size_t(i)].name == "selftest bass") return i; return -1; }();
+        p.loadPreset(0);
+        p.loadIntoLayer(mine, 1);
+        const bool recalled = std::abs(p.value("resonance", 1) - 0.77f) < 1e-4f && juce::roundToInt(p.value("voice_mode", 1)) == 1 && p.layerName(1) == "selftest bass";
+        juce::MemoryBlock mb;
+        p.getStateInformation(mb);
+        TandemProcessor q;
+        q.setStateInformation(mb.getData(), int(mb.getSize()));
+        CHECK(err.isEmpty() && mine >= 0 && !p.presetList()[size_t(mine)].bothLayers && recalled && q.layerName(1) == "selftest bass" && q.layerName(0) == "init",
+              "a layer written as a patch comes back on the other layer; the layers' names are kept with the session");
+        p.deleteUserPreset(mine);
+        // The windows: the right arrow of layer 2's steps it, and UNDO takes it back.
+        p.loadPreset(find("warm pad"));
+        const auto w2 = juce::Point<float>(layout::kPatchWin[1][0] + layout::kPatchWin[1][2] - 6.0f, layout::kPatchWin[1][1] + layout::kPatchWin[1][3] / 2);
+        auto src = juce::Desktop::getInstance().getMainMouseSource();
+        const auto t0 = juce::Time::getCurrentTime();
+        const juce::MouseEvent click(src, w2, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, w2, t0, 1, false);
+        te->mouseDown(click);
+        te->mouseUp(click);
+        const auto stepped = p.layerName(1);
+        const bool editing2 = p.editLayer() == 1;
+        te->doUndo();
+        CHECK(stepped != "init" && editing2 && p.layerName(1) == "init", "clicking layer 2's arrow puts the next patch on it (and edits it); UNDO takes it back");
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;
