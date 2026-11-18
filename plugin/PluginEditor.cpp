@@ -120,6 +120,8 @@ const help::Entry* helpFor(const juce::String& id) {
 // The display's phosphor: amber.
 const juce::Colour kGlow(0xffffc066), kGlowDim(0xa0f0a850), kGlowFaint(0x30ff9a30);
 
+juce::String valueText(TandemProcessor& proc, juce::RangedAudioParameter* p);     // (below, with the display)
+
 }  // namespace
 
 const char* const TandemEditor::kMenuNames[TandemProcessor::kMenus] = {"PERF", "VOICE", "MOD", "ARP", "FX"};
@@ -854,6 +856,15 @@ void TandemEditor::showControlMenu(int ci) {
         m.addItem("Clear its modulation" + (used ? "  (" + juce::String(used) + (used == 1 ? " slot)" : " slots)") : juce::String()), used > 0, false,
                   [this, id] { clearModulationOf(id.toRawUTF8()); });
     }
+    if (is(c, "o1_wave") || is(c, "o2_wave") || is(c, "l_wave")) {          // the alternative slots: your own waves
+        juce::PopupMenu waves;
+        const char* pre = is(c, "o1_wave") ? "osc1_alt" : (is(c, "o2_wave") ? "osc2_alt" : "lfo_alt");
+        const int n = is(c, "o1_wave") ? 6 : (is(c, "o2_wave") ? 3 : 2);
+        for (int k = 1; k <= n; ++k)
+            if (auto* sp = proc_.param(pre + juce::String(k)))
+                waves.addItem("Slot " + juce::String(k) + ":  " + valueText(proc_, sp) + "...", [this, sp] { showWaveMenu(sp); });
+        m.addSubMenu("Its alternative waves (yours too)", waves);
+    }
     if (p && (c.type == Key || c.kind == kRing) && dynamic_cast<juce::AudioParameterChoice*>(p)) {
         auto* ch = dynamic_cast<juce::AudioParameterChoice*>(p);
         juce::PopupMenu set;
@@ -1001,6 +1012,53 @@ void TandemEditor::showWriteMenu() {
                   [this, L] { askPresetName(L); });
     m.addItem("Both layers as a performance...", [this] { askPresetName(2); });
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+}
+
+// ---------------------------------------------------------------------------
+// Your own waves
+void TandemEditor::showWaveMenu(juce::RangedAudioParameter* slot) {
+    if (!slot) return;
+    const int cur = juce::roundToInt(slot->convertFrom0to1(slot->getValue()));
+    juce::PopupMenu m;
+    m.addSectionHeader(slot->getName(40));
+    m.addItem("Import a wave into this slot...", [this, slot] { importWaveInto(slot); });
+    juce::PopupMenu yours;
+    for (int k = 0; k < td::kUserWaves; ++k) {
+        const auto n = proc_.userWaveName(k);
+        yours.addItem("U" + juce::String(k + 1) + "  " + (n.isEmpty() ? juce::String("(empty)") : n), n.isNotEmpty(), cur == td::WaveBank::kNumAlt + k,
+                      [this, slot, k] { EditScope edit(proc_, nameOf(slot)); slot->beginChangeGesture(); TandemProcessor::set(slot, float(td::WaveBank::kNumAlt + k)); slot->endChangeGesture(); repaint(); });
+    }
+    m.addSubMenu("Your waves", yours);
+    juce::PopupMenu built;
+    for (int i = 0; i < td::WaveBank::kNumAlt; ++i)
+        built.addItem(juce::String(i + 1) + "  " + td::WaveBank::altName(i), true, cur == i,
+                      [this, slot, i] { EditScope edit(proc_, nameOf(slot)); slot->beginChangeGesture(); TandemProcessor::set(slot, float(i)); slot->endChangeGesture(); repaint(); });
+    m.addSubMenu("Tandem's waves", built);
+    if (cur >= td::WaveBank::kNumAlt) {
+        const int k = cur - td::WaveBank::kNumAlt;
+        m.addItem("Forget your wave U" + juce::String(k + 1), [this, k] { proc_.clearUserWave(k); notice("U" + juce::String(k + 1) + " IS EMPTY NOW"); repaint(); });
+    }
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+}
+
+void TandemEditor::importWaveInto(juce::RangedAudioParameter* slot) {
+    chooser_ = std::make_unique<juce::FileChooser>("A single-cycle wave for " + slot->getName(40), juce::File(), "*.wav;*.aif;*.aiff;*.flac");
+    juce::Component::SafePointer<TandemEditor> safe(this);
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [safe, slot](const juce::FileChooser& fc) {
+        if (safe == nullptr) return;
+        const auto file = fc.getResult();
+        if (file == juce::File()) return;
+        auto& ed = *safe;
+        const int cur = juce::roundToInt(slot->convertFrom0to1(slot->getValue()));
+        int k = cur >= td::WaveBank::kNumAlt ? cur - td::WaveBank::kNumAlt : ed.proc_.freeUserWave();
+        if (k < 0) k = 0;                                   // all eight in use: the first goes
+        EditScope edit(ed.proc_, "WAVE " + file.getFileNameWithoutExtension().toUpperCase());
+        const auto err = ed.proc_.importWave(k, file);
+        if (err.isNotEmpty()) { juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Couldn't use that file", err); return; }
+        slot->beginChangeGesture(); TandemProcessor::set(slot, float(td::WaveBank::kNumAlt + k)); slot->endChangeGesture();
+        ed.notice("U" + juce::String(k + 1) + ": " + ed.proc_.userWaveName(k).toUpperCase());
+        ed.repaint();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1161,6 +1219,10 @@ juce::String valueText(TandemProcessor& proc, juce::RangedAudioParameter* p) {
         return hf[juce::jlimit(0, 2, juce::roundToInt(proc.value("lfo1_mode")))];
     }
     if (dynamic_cast<juce::AudioParameterBool*>(p) != nullptr) return p->getValue() >= 0.5f ? "On" : "Off";
+    if (p->getParameterID().contains("_alt")) {           // a wave slot holding one of your own waves: its name
+        const int k = juce::roundToInt(p->convertFrom0to1(p->getValue())) - td::WaveBank::kNumAlt;
+        if (k >= 0) { const auto n = proc.userWaveName(k); return "U" + juce::String(k + 1) + " " + (n.isEmpty() ? juce::String("(empty)") : n); }
+    }
     for (int i = 1; i <= td::kMatrixSlots; ++i)         // a slot on pitch: its amount in semitones
         if (p == proc.param("m" + juce::String(i) + "_amt") && juce::roundToInt(proc.value("m" + juce::String(i) + "_dst")) == td::kMdPitch) {
             const float st = p->convertFrom0to1(p->getValue()) * 12.0f;
@@ -1312,6 +1374,11 @@ void TandemEditor::drawOverview(juce::Graphics& g) {
         phosphor(g, juce::String(i + 1), {x, y, 13, rowH}, 9.5f, juce::Justification::centredRight, 0.55f);
         phosphor(g, route, {x + 18, y, colW - 52, rowH}, 10.5f, juce::Justification::centredLeft);
         phosphor(g, (amt > 0 ? "+" : "") + juce::String(amt), {x + colW - 36, y, 32, rowH}, 10.5f, juce::Justification::centredRight, 0.85f);
+        const float bx = x + 18, bw = colW - 24, mid = bx + bw * 0.5f, a = slotValue(i, 2);     // the amount as a hairline from the middle
+        g.setColour(kGlowFaint);
+        g.fillRect(juce::Rectangle<float>(bx, y + rowH - 2.5f, bw, 1.0f) * s_);
+        g.setColour(kGlowDim.withAlpha(ovSlot_ == i ? 1.0f : 0.75f));
+        g.fillRect(juce::Rectangle<float>(a >= 0 ? mid : mid + a * bw * 0.5f, y + rowH - 3.0f, std::abs(a) * bw * 0.5f, 2.0f) * s_);
     }
 }
 
@@ -1324,6 +1391,53 @@ int TandemEditor::overviewSlotAt(juce::Point<float> pt) const {
     const int col = pt.x < kDispX + 7 + colW ? 0 : 1, row = int((pt.y - (kDispY + 26)) / 17.0f);
     const int n = col * kOverviewRows + row;
     return row >= 0 && row < kOverviewRows && n < int(used.size()) ? used[size_t(n)] : -1;
+}
+
+void TandemEditor::showSlotMenu(int slot) {
+    const juce::String n(slot + 1);
+    const int other = 1 - proc_.editLayer();
+    juce::PopupMenu m;
+    m.addSectionHeader("MATRIX " + n + " (LAYER " + juce::String(proc_.editLayer() + 1) + ")");
+    m.addItem("Open its page", [this, slot] { showMenu(2, slot + kMatrixFirst); });
+    m.addItem("Amount to zero", [this, slot] {
+        EditScope edit(proc_, "MATRIX AMOUNT");
+        if (auto* p = slotParam(slot, 2)) { p->beginChangeGesture(); TandemProcessor::set(p, 0.0f); p->endChangeGesture(); }
+        refreshDepths(); repaint();
+    });
+    m.addItem("Turn it the other way", [this, slot] {
+        EditScope edit(proc_, "MATRIX AMOUNT");
+        if (auto* p = slotParam(slot, 2)) { p->beginChangeGesture(); TandemProcessor::set(p, -slotValue(slot, 2)); p->endChangeGesture(); }
+        refreshDepths(); repaint();
+    });
+    m.addItem("Copy it to layer " + juce::String(other + 1), [this, slot] { copySlotToOtherLayer(slot); });
+    m.addSeparator();
+    m.addItem("Clear it", [this, slot] {
+        EditScope edit(proc_, "CLEAR MATRIX " + juce::String(slot + 1));
+        for (int f = 0; f < 5; ++f)
+            if (auto* p = slotParam(slot, f)) { p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture(); }
+        refreshDepths(); repaint();
+    });
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+}
+
+void TandemEditor::copySlotToOtherLayer(int slot) {
+    const int L = proc_.editLayer(), other = 1 - L;
+    auto field = [&](int layer, int s, int f) { return slot_[layer][s][f]; };
+    auto val = [&](int layer, int s, int f) { auto* p = field(layer, s, f); return p ? juce::roundToInt(p->convertFrom0to1(p->getValue())) : 0; };
+    int to = -1;
+    for (int i = 0; i < td::kMatrixSlots && to < 0; ++i)          // the same route there already: that one
+        if (val(other, i, 0) == val(L, slot, 0) && val(other, i, 1) == val(L, slot, 1) && val(other, i, 3) == val(L, slot, 3)) to = i;
+    for (int i = 0; i < td::kMatrixSlots && to < 0; ++i)          // else the first free one
+        if (val(other, i, 0) == td::kMsNone || val(other, i, 1) == td::kMdNone) to = i;
+    if (to < 0) { notice("LAYER " + juce::String(other + 1) + ": ALL 12 SLOTS ARE IN USE"); return; }
+    {
+        EditScope edit(proc_, "COPY MATRIX " + juce::String(slot + 1));
+        for (int f = 0; f < 5; ++f)
+            if (auto* src = field(L, slot, f))
+                if (auto* dst = field(other, to, f)) { dst->beginChangeGesture(); dst->setValueNotifyingHost(src->getValue()); dst->endChangeGesture(); }
+    }
+    notice("COPIED TO LAYER " + juce::String(other + 1) + ", SLOT " + juce::String(to + 1));
+    repaint();
 }
 
 void TandemEditor::drawTypeWindow(juce::Graphics& g) {
@@ -1633,8 +1747,22 @@ void TandemEditor::mouseDown(const juce::MouseEvent& e) {
         return;
     }
     if (h == kDisplay) {
-        if (e.mods.isPopupMenu()) { showPresetMenu(); return; }
-        if (const int slot = overviewSlotAt(pt); slot >= 0) { showMenu(2, slot + kMatrixFirst); return; }
+        if (e.mods.isPopupMenu()) {
+            if (const int slot = overviewSlotAt(pt); slot >= 0) { showSlotMenu(slot); return; }
+            if (auto* p = pageParam(displayColumnAt(pt)); p && p->getParameterID().contains("_alt")) { showWaveMenu(p); return; }
+            showPresetMenu();
+            return;
+        }
+        if (const int slot = overviewSlotAt(pt); slot >= 0) {           // a line of the overview: drag for its amount, click for its page
+            if (auto* p = slotParam(slot, 2)) {
+                ovSlot_ = slot;
+                drag_ = kDisplay;
+                dragStartNorm_ = p->getValue();
+                proc_.beginEdit("MATRIX " + juce::String(slot + 1) + " AMOUNT");
+                p->beginChangeGesture();
+            }
+            return;
+        }
         drag_ = kDisplay;
         dragCol_ = displayColumnAt(pt);
         if (dragCol_ < 0) {                             // the title line: the left half lists the pages, the right the patches
@@ -1685,6 +1813,17 @@ void TandemEditor::mouseDrag(const juce::MouseEvent& e) {
             p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, dragStartNorm_ + dragAccum_));
         }
     };
+    if (drag_ == kDisplay && ovSlot_ >= 0) {
+        if (auto* p = slotParam(ovSlot_, 2)) {
+            dragMoved_ = dragMoved_ || std::abs(e.position.x - e.mouseDownPosition.x) + std::abs(e.position.y - e.mouseDownPosition.y) > 3.0f;
+            if (!dragMoved_) return;
+            dragAccum_ += (dx - dy) / (260.0f * s_) * (fine ? 0.15f : 1.0f);
+            p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, dragStartNorm_ + dragAccum_));
+            refreshDepths();
+            repaintPts({kDispX, kDispY, kDispW, kDispH});
+        }
+        return;
+    }
     if (drag_ == kDisplay) { columnDrag(dragCol_); return; }
     if (drag_ < 0 || drag_ >= kNumControls) return;
     const auto& c = kControls[drag_];
@@ -1737,6 +1876,16 @@ void TandemEditor::mouseUp(const juce::MouseEvent& e) {
         drag_ = kNone; dragCol_ = -1;
         refreshDepths();
         if (was >= 0) repaintPts(boundsOf(was));
+        repaint();
+        return;
+    }
+    if (ovSlot_ >= 0) {
+        const int slot = ovSlot_;
+        ovSlot_ = -1;
+        drag_ = kNone;
+        if (auto* p = slotParam(slot, 2)) p->endChangeGesture();
+        proc_.endEdit();
+        if (!wasMoved) showMenu(2, slot + kMatrixFirst);
         repaint();
         return;
     }
@@ -1807,6 +1956,12 @@ void TandemEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWh
         { EditScope edit(proc_, "L" + juce::String(L + 1) + " PATCH"); proc_.stepLayer(L, -dir); }
         refreshDepths();
         repaint();
+        return;
+    }
+    if (h == kDisplay && overviewSlotAt(pt) >= 0) {       // over a line of the overview: its amount
+        nudge(slotParam(overviewSlotAt(pt), 2));
+        refreshDepths();
+        repaintPts({kDispX, kDispY, kDispW, kDispH});
         return;
     }
     if (h == kDisplay) {

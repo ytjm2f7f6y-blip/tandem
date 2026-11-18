@@ -55,6 +55,13 @@ public:
         configure();
     }
     void setSeed(uint32_t s) { seed_ = s; }
+    void setUserWaves(const UserWaves* u) { user_ = u; }
+    // An alternative wave by index: the built-in ones, then your own.
+    const WaveTable& altTable(int i) const {
+        if (i >= WaveBank::kNumAlt && user_ != nullptr && i < WaveBank::kNumAlt + kUserWaves)
+            if (const auto* w = user_->t[size_t(i - WaveBank::kNumAlt)].load(std::memory_order_acquire)) return *w;
+        return WaveBank::get().alt(i);
+    }
     // The latency the layer adds, in host samples (the decimator's).
     double latencySamples() const { return os_ == 2 ? 23.5 : 0.0; }
     float internalRate() const { return fs_; }
@@ -297,8 +304,8 @@ private:
                 default: {
                     const int slot = std::clamp(w - altBase, 0, nAlt - 1);
                     oc.kind = 0;
-                    oc.a = &bank.alt(alt[slot]);
-                    oc.b = &bank.alt(alt[(slot + 1) % nAlt]);          // wave mod scans to the next slot
+                    oc.a = &altTable(alt[slot]);
+                    oc.b = &altTable(alt[(slot + 1) % nAlt]);          // wave mod scans to the next slot
                 }
             }
             if (w == kWSaw) oc.kind = 3;                              // a saw morphs to a square: saw(p) - m saw(p + 1/2)
@@ -359,8 +366,8 @@ private:
             const int d = std::clamp(int(p.lfo1Rate * (kNumLfoDivs - 1) + 0.5f), 0, kNumLfoDivs - 1);
             c.lfo1Hz = bpm_ / 60.0f / kLfoBeats[d];
         } else c.lfo1Hz = 0.03f * std::pow(40.0f / 0.03f, p.lfo1Rate);
-        c.lfoUser[0] = bank.alt(p.lfoAlt[0]).level(0);
-        c.lfoUser[1] = bank.alt(p.lfoAlt[1]).level(0);
+        c.lfoUser[0] = altTable(p.lfoAlt[0]).level(0);
+        c.lfoUser[1] = altTable(p.lfoAlt[1]).level(0);
         c.lfo1DelayS = 5.0f * p.lfo1Delay * p.lfo1Delay * p.lfo1Delay;
         c.lfo2DelayS = 5.0f * p.lfo2Delay * p.lfo2Delay * p.lfo2Delay;
         c.lfo2Hz = 0.05f * std::pow(600.0f, p.lfo2Rate);
@@ -525,6 +532,7 @@ private:
     float host_ = 44100.0f, fs_ = 88200.0f;
     int os_ = 2;
     uint32_t seed_ = 1;
+    const UserWaves* user_ = nullptr;
     uint64_t clock_ = 1;
     float bpm_ = 120.0f, bend_ = 0.0f, mw_ = 0.0f, at_ = 0.0f, expr_ = 0.0f, tune_ = 0.0f;
     bool sustain_ = false, odrive_ = false;

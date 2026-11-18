@@ -51,7 +51,14 @@ keys work the panel from the keyboard; VoiceOver reads every control.
 
 The display: PERF, VOICE, MOD, ARP and FX each have pages (press again,
 or use the PAGE arrows). Drag a column up or down (or scroll over it)
-to change it. Moving any control shows its value for a moment.
+to change it. Moving any control shows its value for a moment. The MOD
+menu's first page is the whole matrix: drag a line for its amount, click
+it for its page, right-click to copy it to the other layer or clear it.
+
+Your own waves: right-click a waveform ring (OSC 1, OSC 2, LFO 1) or a
+wave slot on the VOICE pages, then "Import a wave into this slot...".
+One cycle in a WAV, AIFF or FLAC file. Eight of yours (U1-U8) are kept
+with the session and travel with any sound you write.
 
 SHIFT: click it, then touch any control, for that control's page (SHIFT
 + CUTOFF: routing, type, resonance type, keytrack). Red legends are its

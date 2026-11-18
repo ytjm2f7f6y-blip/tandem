@@ -2,6 +2,8 @@
 
 #include "PluginEditor.h"
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 juce::AudioProcessor::BusesProperties TandemProcessor::buses() {
     auto b = BusesProperties();
    #if TD_SIDECHAIN
@@ -269,8 +271,11 @@ void TandemProcessor::loadPreset(int index) {
     } else {
         auto xml = juce::XmlDocument::parse(list[size_t(index)].file);
         if (!xml || !xml->hasTagName("TandemPreset")) return;
-        for (auto* e : xml->getChildWithTagNameIterator("p"))
-            if (auto* v = slot(apvts.getParameter(e->getStringAttribute("id")))) *v = float(e->getDoubleAttribute("v"));
+        const auto map = readWaves(*xml);
+        for (auto* e : xml->getChildWithTagNameIterator("p")) {
+            const auto id = e->getStringAttribute("id");
+            if (auto* v = slot(apvts.getParameter(id))) *v = id.contains("_alt") ? mapWave(float(e->getDoubleAttribute("v")), map) : float(e->getDoubleAttribute("v"));
+        }
     }
     applySetting(s);
     presetIndex_ = index;
@@ -341,11 +346,13 @@ void TandemProcessor::loadIntoLayer(int index, int layer, int part) {
     } else {
         auto xml = juce::XmlDocument::parse(e.file);
         if (!xml || !xml->hasTagName("TandemPreset")) return;
+        const auto map = readWaves(*xml, 1 - layer);          // the other layer's waves stay as they are
         const juce::String pre = "l" + juce::String(part + 1) + "_";
         for (auto* p : xml->getChildWithTagNameIterator("p")) {
             const auto id = p->getStringAttribute("id");
             if (id.startsWith(pre))
-                if (auto* v = slot(param(id.substring(pre.length()), layer))) *v = float(p->getDoubleAttribute("v"));
+                if (auto* v = slot(param(id.substring(pre.length()), layer)))
+                    *v = id.contains("_alt") ? mapWave(float(p->getDoubleAttribute("v")), map) : float(p->getDoubleAttribute("v"));
         }
     }
     applySetting(s);
@@ -377,6 +384,7 @@ juce::String TandemProcessor::saveLayerPatch(const juce::String& rawName, int la
     juce::XmlElement xml("TandemPreset");
     xml.setAttribute("name", name);
     xml.setAttribute("kind", "layer");
+    writeWaves(xml, true, layer);
     for (const auto& k : layerKeys_) {
         auto* q = param(k, layer);
         if (!q) continue;
@@ -423,6 +431,7 @@ juce::String TandemProcessor::saveUserPreset(const juce::String& rawName) {
     juce::XmlElement xml("TandemPreset");
     xml.setAttribute("name", name);
     xml.setAttribute("kind", "performance");
+    writeWaves(xml, true);
     const Setting s = currentSetting();
     for (size_t i = 0; i < all_.size(); ++i) {
         const float def = all_[i]->convertFrom0to1(all_[i]->getDefaultValue());
@@ -511,6 +520,135 @@ bool TandemProcessor::redo() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Your own waves
+juce::String TandemProcessor::importWave(int slot, const juce::File& file) {
+    if (slot < 0 || slot >= td::kUserWaves) return "No such slot.";
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(file));
+    if (!r) return "Tandem can't read " + file.getFileName() + " (WAV, AIFF or FLAC, please).";
+    const auto n = int(r->lengthInSamples);
+    if (n < 16) return file.getFileName() + " is too short to be a wave.";
+    // One cycle: a file of whole 2048-point frames (a wavetable) gives its first; anything up to 8192 points is one cycle.
+    int len = n;
+    if (n > 8192) {
+        if (n % 2048 == 0) len = 2048;
+        else return file.getFileName() + " is longer than one cycle. Tandem takes single-cycle waves (up to 8192 points, or a wavetable of 2048-point frames).";
+    }
+    juce::AudioBuffer<float> buf(int(r->numChannels), len);
+    r->read(&buf, 0, len, 0, true, true);
+    std::vector<float> cyc(kCycle);
+    const float* x = buf.getReadPointer(0);
+    for (int i = 0; i < kCycle; ++i) {                      // to 2048 points, round the loop
+        const double pos = double(i) * double(len) / double(kCycle);
+        const int i0 = int(pos);
+        const double f = pos - i0;
+        cyc[size_t(i)] = float(x[i0 % len] * (1.0 - f) + x[(i0 + 1) % len] * f);
+    }
+    double mean = 0;
+    for (float v : cyc) mean += v;
+    mean /= kCycle;
+    float peak = 0;
+    for (auto& v : cyc) { v -= float(mean); peak = std::max(peak, std::abs(v)); }
+    if (peak < 1e-5f) return file.getFileName() + " is silent.";
+    for (auto& v : cyc) v /= peak;
+    setUserWave(slot, file.getFileNameWithoutExtension().substring(0, 24), cyc);
+    return {};
+}
+
+void TandemProcessor::setUserWave(int slot, const juce::String& name, const std::vector<float>& cycle) {
+    if (slot < 0 || slot >= td::kUserWaves || int(cycle.size()) != kCycle) return;
+    auto t = std::make_unique<td::WaveTable>();
+    std::vector<double> d(cycle.begin(), cycle.end());
+    t->fromCycle(d, 1.0f, 512);                             // band-limited, as the built-in alternatives
+    t->name = name.toStdString();
+    engine_.userWaves().t[size_t(slot)].store(t.get(), std::memory_order_release);
+    if (userTable_[size_t(slot)]) retired_.push_back(std::move(userTable_[size_t(slot)]));
+    if (retired_.size() > 24) retired_.erase(retired_.begin(), retired_.begin() + 8);
+    userTable_[size_t(slot)] = std::move(t);
+    userName_[size_t(slot)] = name;
+    userCycle_[size_t(slot)] = cycle;
+}
+
+void TandemProcessor::clearUserWave(int slot) {
+    if (slot < 0 || slot >= td::kUserWaves) return;
+    engine_.userWaves().t[size_t(slot)].store(nullptr, std::memory_order_release);
+    if (userTable_[size_t(slot)]) retired_.push_back(std::move(userTable_[size_t(slot)]));
+    userName_[size_t(slot)] = {};
+    userCycle_[size_t(slot)].clear();
+}
+
+int TandemProcessor::freeUserWave() const {
+    for (int k = 0; k < td::kUserWaves; ++k) if (userName_[size_t(k)].isEmpty()) return k;
+    return -1;
+}
+
+bool TandemProcessor::waveUsed(int slot, int layer) const {
+    const int idx = td::WaveBank::kNumAlt + slot;
+    for (int L = 0; L < 2; ++L) {
+        if (layer >= 0 && layer != L) continue;
+        for (const char* k : {"osc1_alt1", "osc1_alt2", "osc1_alt3", "osc1_alt4", "osc1_alt5", "osc1_alt6", "osc2_alt1", "osc2_alt2", "osc2_alt3", "lfo_alt1", "lfo_alt2"})
+            if (juce::roundToInt(value(k, L)) == idx) return true;
+    }
+    return false;
+}
+
+void TandemProcessor::writeWaves(juce::XmlElement& into, bool onlyUsed, int layer) const {
+    for (int k = 0; k < td::kUserWaves; ++k) {
+        if (userCycle_[size_t(k)].empty() || (onlyUsed && !waveUsed(k, layer))) continue;
+        juce::MemoryBlock mb;
+        for (float v : userCycle_[size_t(k)]) {
+            const auto s16 = int16_t(juce::jlimit(-32767, 32767, juce::roundToInt(v * 32767.0f)));
+            mb.append(&s16, sizeof s16);
+        }
+        auto* e = into.createNewChildElement("wave");
+        e->setAttribute("slot", k);
+        e->setAttribute("name", userName_[size_t(k)]);
+        e->setAttribute("data", mb.toBase64Encoding());
+    }
+}
+
+std::array<int, td::kUserWaves> TandemProcessor::readWaves(const juce::XmlElement& from, int keepLayer) {
+    std::array<int, td::kUserWaves> map;
+    for (int k = 0; k < td::kUserWaves; ++k) map[size_t(k)] = k;
+    std::array<bool, td::kUserWaves> taken{};               // given to a wave from this file already
+    auto same = [&](int j, const juce::String& name, const std::vector<float>& c) {
+        const auto& h = userCycle_[size_t(j)];
+        if (h.size() != c.size() || userName_[size_t(j)] != name) return false;
+        for (size_t i = 0; i < c.size(); ++i) if (std::abs(h[i] - c[i]) > 1.0f / 8000.0f) return false;
+        return true;
+    };
+    auto keep = [&](int j) { return keepLayer >= 0 && !userCycle_[size_t(j)].empty() && waveUsed(j, keepLayer); };
+    for (auto* e : from.getChildWithTagNameIterator("wave")) {
+        const int k = e->getIntAttribute("slot", -1);
+        juce::MemoryBlock mb;
+        if (k < 0 || k >= td::kUserWaves || !mb.fromBase64Encoding(e->getStringAttribute("data")) || mb.getSize() != size_t(kCycle) * 2) continue;
+        std::vector<float> cyc(kCycle);
+        const auto* d = static_cast<const int16_t*>(mb.getData());
+        for (int i = 0; i < kCycle; ++i) cyc[size_t(i)] = float(d[i]) / 32767.0f;
+        const auto name = e->getStringAttribute("name");
+        int to = -1;
+        for (int j = 0; j < td::kUserWaves && to < 0; ++j) if (same(j, name, cyc)) to = j;     // already here: shared
+        if (to < 0 && !taken[size_t(k)] && !keep(k)) to = k;                                    // its own slot
+        for (int j = 0; j < td::kUserWaves && to < 0; ++j)                                      // an empty one
+            if (!taken[size_t(j)] && userCycle_[size_t(j)].empty()) to = j;
+        for (int j = 0; j < td::kUserWaves && to < 0; ++j)                                      // one nothing kept uses
+            if (!taken[size_t(j)] && !keep(j)) to = j;
+        map[size_t(k)] = to;
+        if (to < 0) continue;
+        taken[size_t(to)] = true;
+        if (!same(to, name, cyc)) setUserWave(to, name, cyc);
+    }
+    return map;
+}
+
+float TandemProcessor::mapWave(float v, const std::array<int, td::kUserWaves>& map) {
+    const int i = juce::roundToInt(v) - td::WaveBank::kNumAlt;
+    if (i < 0 || i >= td::kUserWaves) return v;
+    return map[size_t(i)] < 0 ? 0.0f : float(td::WaveBank::kNumAlt + map[size_t(i)]);
+}
+
 juce::AudioProcessorEditor* TandemProcessor::createEditor() { return new TandemEditor(*this); }
 
 void TandemProcessor::getStateInformation(juce::MemoryBlock& destData) {
@@ -527,11 +665,18 @@ void TandemProcessor::getStateInformation(juce::MemoryBlock& destData) {
         state.setProperty("layerIndex" + juce::String(L), layerIndex_[size_t(L)], nullptr);
         state.setProperty("layerPart" + juce::String(L), layerPart_[size_t(L)], nullptr);
     }
-    if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
+    if (auto xml = state.createXml()) {
+        auto waves = std::make_unique<juce::XmlElement>("UserWaves");
+        writeWaves(*waves, false);
+        xml->addChildElement(waves.release());
+        copyXmlToBinary(*xml, destData);
+    }
 }
 
 void TandemProcessor::setStateInformation(const void* data, int sizeInBytes) {
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
+        for (int k = 0; k < td::kUserWaves; ++k) clearUserWave(k);
+        if (auto* w = xml->getChildByName("UserWaves")) { readWaves(*w); xml->removeChildElement(w, true); }
         auto state = juce::ValueTree::fromXml(*xml);
         if (!state.isValid() || !state.hasType(apvts.state.getType())) return;
         uiScale = float(state.getProperty("uiScale", 1.0f));

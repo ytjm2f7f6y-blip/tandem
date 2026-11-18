@@ -31,6 +31,17 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
   rings** (waveforms, octave): click a lamp, click the knob to step, or drag.
 - **Right-click** any control for its menu: its page, back to its default, set it to,
   and for knobs the matrix can move, *Modulate from* and *Clear its modulation*.
+- **Your own waves.** Right-click a waveform ring (OSC 1, OSC 2 or LFO 1), or a wave
+  slot on the VOICE pages, and choose *Import a wave into this slot...*: a WAV, AIFF or
+  FLAC of one cycle (up to 8192 points; a wavetable of 2048-point frames gives its
+  first). Tandem centres it, scales it to full level and band-limits it like its own
+  waves. Eight of yours (U1-U8) sit after Tandem's 32 in every slot's list, by name.
+  They are kept with the Logic session, and a patch or performance you write carries
+  the waves it uses, so it plays the same on another Mac. Loading one never overwrites
+  a wave the other layer is using: the new one takes the next free slot.
+- **The matrix at a glance** (the MOD menu's first page): drag a line, or scroll over
+  it, to change its amount; click it for its slot's page; right-click it to zero or
+  flip the amount, copy the slot to the other layer, or clear it.
 - **Undo and redo:** the UNDO and REDO keys, or Cmd-Z and Shift-Cmd-Z.
 - **Keyboard and VoiceOver:** Tab moves through the controls in panel order (an amber
   outline shows where you are); the arrow keys change the one in focus, Shift for fine,
@@ -103,8 +114,8 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
-| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | **this build** |
-| 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer; next: importing your own single-cycle waves, matrix polish | under way |
+| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | done |
+| 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer, your own single-cycle waves (eight, kept with the session and with saved sounds), a matrix overview you can edit directly | **this build** |
 
 ## Installing
 
@@ -136,8 +147,8 @@ the next (sine to saw, saw to square, triangle to saw, an alternative wave to th
 next slot). OSC 2's last three positions are drones on C2.
 
 There are 32 alternative waves of Tandem's own (organs, vowels, synced and FM shapes,
-folded and clipped sines, and more). The hardware's own waves are not in its manual,
-so none of them are copied.
+folded and clipped sines, and more), and room for eight of yours. The hardware's own
+waves are not in its manual, so none of them are copied.
 
 **Filter.** Each voice has two filter cores. Each core is four OTA one-pole stages in a
 loop, solved without a unit delay, with a saturating input stage. Low, high and band

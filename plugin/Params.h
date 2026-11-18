@@ -48,6 +48,7 @@ inline juce::String panT(float v, int) {
 inline juce::StringArray altNames() {
     juce::StringArray a;
     for (int i = 0; i < td::WaveBank::kNumAlt; ++i) a.add(juce::String(i + 1) + " " + td::WaveBank::altName(i));
+    for (int k = 0; k < td::kUserWaves; ++k) a.add("U" + juce::String(k + 1) + " Your wave " + juce::String(k + 1));    // imported waves
     return a;
 }
 inline const juce::StringArray kOsc1Waves{"Sine", "Sawtooth", "Square", "Pulse", "Triangle", "Noise", "Alt 1", "Alt 2", "Alt 3", "Alt 4", "Alt 5", "Alt 6"};

@@ -4,8 +4,8 @@
 namespace help {
 struct Entry { const char* id; const char* name; const char* text; };
 inline const Entry kEntries[] = {
-    {"o1_wave", "OSC 1 waveform", "Sine, saw, square, pulse, triangle, noise, then six alternative single-cycle waves (1-6, chosen on the VOICE pages). Click or drag to step; the lit lamp shows which. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},
-    {"o2_wave", "OSC 2 waveform", "The classic waves, three alternative waves, and three drones (D1-D3: square, saw, sine) that stay on C2 whatever you play. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},
+    {"o1_wave", "OSC 1 waveform", "Sine, saw, square, pulse, triangle, noise, then six alternative single-cycle waves (1-6, chosen on the VOICE pages, or right-click here: any slot can hold one of your own, imported from a WAV, AIFF or FLAC). Click or drag to step; the lit lamp shows which. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},
+    {"o2_wave", "OSC 2 waveform", "The classic waves, three alternative waves (yours too: right-click), and three drones (D1-D3: square, saw, sine) that stay on C2 whatever you play. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},
     {"o1_tune", "OSC 1 tune", "-7 to +7 semitones, for fourths, fifths and the like."},
     {"o2_tune", "OSC 2 tune", "-7 to +7 semitones. With sync on 2›1, raising it sweeps the synced harmonics."},
     {"o1_fine", "OSC 1 fine", "-50 to +50 cents. A few cents between the oscillators thickens the sound."},
@@ -86,8 +86,8 @@ inline const Entry kEntries[] = {
     {"pw1", "Layer 1's sound", "The patch on layer 1. Click the name for the list of sounds to put on it; the arrows at its ends step through them. Any patch can go on either layer."},
     {"pw2", "Layer 2's sound", "The patch on layer 2. Click the name for the list; the arrows step. Put a bass on one layer and a pad on the other, then choose how they share the keys with PLAY MODE."},
     {"pg_perf", "Perf pages", "The layer's level and pan; ZONES and key ranges; RNDMZR!? (CHAOS's intervals and the random layer odds); the side chain's follower; bender, velocity and variation."},
-    {"pg_voice", "Voice pages", "Voice mode, unison, drift, filter routing, alternative waves, LFO 1, glide."},
-    {"pg_mod", "Mod pages", "First the matrix at a glance (click a line for its slot), then the twelve-slot mod matrix (one slot a page: source, destination, amount, and VIA, a second source that scales the amount), note random, LFO 2, envelope 3, velocity and bender."},
+    {"pg_voice", "Voice pages", "Voice mode, unison, drift, filter routing, alternative waves, LFO 1, glide. Right-click a wave slot to import a single-cycle wave of your own into it."},
+    {"pg_mod", "Mod pages", "First the matrix at a glance (drag or scroll a line for its amount, click it for its slot, right-click to copy it to the other layer or clear it), then the twelve-slot mod matrix (one slot a page: source, destination, amount, and VIA, a second source that scales the amount), note random, LFO 2, envelope 3, velocity and bender."},
     {"assign", "Assign", "The quick way into the mod matrix. Click it (its lamp lights), then turn the knob you want to modulate: the display opens a free matrix slot with that knob as the destination and the amount following your turn. Pick the source with the first encoder. Click ASSIGN again to stop."},
     {"pg_arp", "Arp pages", "The edited layer's arpeggiator: mode, range, division; swing, gate, hold; the clock."},
     {"pg_fx", "FX pages", "Drive, chorus, EQ, delay and reverb."},

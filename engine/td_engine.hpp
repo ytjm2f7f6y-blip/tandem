@@ -13,6 +13,12 @@ public:
     static constexpr int kLayers = 2;
     static constexpr int kSpan = 1024;         // the most samples rendered in one go (the buffers' size)
 
+    Engine() { for (auto& l : layer_) l.setUserWaves(&user_); }
+    Engine(const Engine&) = delete;
+    Engine& operator=(const Engine&) = delete;
+    // Your own waves: the plugin publishes a table per slot (it keeps them alive).
+    UserWaves& userWaves() { return user_; }
+
     void prepare(double rate, int maxBlock) {
         rate_ = rate;
         (void)maxBlock;
@@ -229,6 +235,7 @@ private:
         }
     }
 
+    UserWaves user_;
     std::array<Layer, kLayers> layer_;
     std::array<Arp, kLayers> arp_;
     PerfParams perf_;

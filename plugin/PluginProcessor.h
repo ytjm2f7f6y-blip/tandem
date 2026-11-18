@@ -82,6 +82,16 @@ public:
     int abSlot() const { return abSlot_; }
     void selectAB(int slot);
 
+    // ---- your own waves (message thread): 8 slots, after the 32 built-in alternatives in every wave list.
+    // A slot keeps one cycle (2048 points); it is saved with the session, and with any sound that uses it.
+    static constexpr int kCycle = 2048;
+    juce::String importWave(int slot, const juce::File& file);      // "" when it worked, else why not
+    void setUserWave(int slot, const juce::String& name, const std::vector<float>& cycle);
+    void clearUserWave(int slot);
+    juce::String userWaveName(int slot) const { return slot >= 0 && slot < td::kUserWaves ? userName_[size_t(slot)] : juce::String(); }
+    int freeUserWave() const;                                        // the first empty slot, or -1
+    const std::vector<float>& userCycle(int slot) const { return userCycle_[size_t(juce::jlimit(0, td::kUserWaves - 1, slot))]; }
+
     // ---- undo and redo (message thread): the sound before and after each edit made in the window.
     // Patch, compare and DICE are edits too. Wheel nudges to the same control within a second merge.
     void beginEdit(const juce::String& what);
@@ -168,6 +178,17 @@ private:
     Snapshot pending_;
     juce::String pendingWhat_;
     bool editing_ = false;
+
+    std::array<std::unique_ptr<td::WaveTable>, td::kUserWaves> userTable_;
+    std::vector<std::unique_ptr<td::WaveTable>> retired_;          // replaced tables, kept a while: the audio thread may still read one
+    std::array<juce::String, td::kUserWaves> userName_;
+    std::array<std::vector<float>, td::kUserWaves> userCycle_;
+    // Your waves travel with what uses them. Reading puts each where it fits: the same wave already here is shared,
+    // and a slot `keepLayer` uses is never overwritten (the wave moves to another slot). Returns file slot -> slot here (-1: no room).
+    void writeWaves(juce::XmlElement& into, bool onlyUsed, int layer = -1) const;
+    std::array<int, td::kUserWaves> readWaves(const juce::XmlElement& from, int keepLayer = -1);
+    static float mapWave(float altValue, const std::array<int, td::kUserWaves>& map);
+    bool waveUsed(int slot, int layer = -1) const;
 
     double sampleRate_ = 48000;
     std::vector<float> l_, r_, scL_, scR_;

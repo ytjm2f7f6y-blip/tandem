@@ -4,6 +4,8 @@
 
 #include <cstdio>
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 static int fails = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { ++fails; std::printf("FAIL: %s\n", msg); } else std::printf("ok:   %s\n", msg); } while (0)
 
@@ -552,6 +554,105 @@ int main() {
         const bool editing2 = p.editLayer() == 1;
         te->doUndo();
         CHECK(stepped != "init" && editing2 && p.layerName(1) == "init", "clicking layer 2's arrow puts the next patch on it (and edits it); UNDO takes it back");
+    }
+    {   // The matrix overview: drag a line for its amount, scroll over it, click it for its page; copy a slot to the other layer.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        TandemProcessor::set(p.param("m1_src", 0), float(td::kMsLfo1));
+        TandemProcessor::set(p.param("m1_dst", 0), float(td::kMdCutoff));
+        TandemProcessor::set(p.param("m1_amt", 0), 0.25f);
+        p.menu = 2; p.page[2] = 0;                          // the overview
+        auto src = juce::Desktop::getInstance().getMainMouseSource();
+        const auto t0 = juce::Time::getCurrentTime();
+        auto ev = [&](juce::Point<float> at, juce::Point<float> down) {
+            return juce::MouseEvent(src, at, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down, t0, 1, at != down);
+        };
+        const juce::Point<float> line(layout::kDispX + 60, layout::kDispY + 26 + 8);
+        te->mouseDown(ev(line, line));
+        te->mouseDrag(ev(line.translated(30, -30), line));
+        te->mouseUp(ev(line.translated(30, -30), line));
+        const float dragged = p.value("m1_amt", 0);
+        CHECK(dragged > 0.4f && p.page[2] == 0, "dragging a line of the matrix overview turns its amount up (and stays on the overview)");
+        te->mouseWheelMove(ev(line, line), juce::MouseWheelDetails{0.0f, -0.25f, false, false, false});
+        CHECK(p.value("m1_amt", 0) < dragged, "scrolling over the line turns it down");
+        te->mouseDown(ev(line, line));
+        te->mouseUp(ev(line, line));
+        CHECK(p.menu == 2 && p.page[2] == TandemEditor::kMatrixFirst, "a click on the line opens its slot's page");
+        TandemProcessor::set(p.param("m1_src", 1), float(td::kMsEnv2));                   // layer 2's slot 1 is taken
+        TandemProcessor::set(p.param("m1_dst", 1), float(td::kMdPan));
+        te->copySlotToOtherLayer(0);
+        CHECK(juce::roundToInt(p.value("m2_src", 1)) == td::kMsLfo1 && juce::roundToInt(p.value("m2_dst", 1)) == td::kMdCutoff
+                  && std::abs(p.value("m2_amt", 1) - p.value("m1_amt", 0)) < 1e-4f && juce::roundToInt(p.value("m1_src", 1)) == td::kMsEnv2,
+              "a slot copied to the other layer goes into its first free slot");
+        te->doUndo();
+        CHECK(juce::roundToInt(p.value("m2_src", 1)) == td::kMsNone, "UNDO takes the copy back");
+    }
+    {   // Your own waves: imported from a file into a slot, played, kept with the session and with a saved patch.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        const auto tmp = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("tandem_selftest_third.wav");
+        tmp.deleteFile();
+        {   // one cycle of the third harmonic, 600 points, at half scale and off centre
+            juce::AudioBuffer<float> cyc(1, 600);
+            for (int i = 0; i < 600; ++i) cyc.setSample(0, i, 0.1f + 0.5f * std::sin(2.0f * juce::MathConstants<float>::pi * 3.0f * float(i) / 600.0f));
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::OutputStream> os(tmp.createOutputStream());
+            auto w = wav.createWriterFor(os, juce::AudioFormatWriterOptions().withSampleRate(44100.0).withNumChannels(1).withBitsPerSample(24));
+            if (w) { w->writeFromAudioSampleBuffer(cyc, 0, 600); }
+        }
+        const int k = p.freeUserWave();
+        const auto err = p.importWave(k, tmp);
+        auto corr3 = [](const td::WaveTable* t) {                // how much like a sine of the third harmonic, -1..1
+            if (!t) return 0.0;
+            const float* x = t->level(0);
+            double sxy = 0, sxx = 0, syy = 0;
+            for (int i = 0; i < td::WaveTable::kSize; ++i) {
+                const double y = std::sin(2.0 * juce::MathConstants<double>::pi * 3.0 * i / td::WaveTable::kSize);
+                sxy += x[i] * y; sxx += double(x[i]) * x[i]; syy += y * y;
+            }
+            return sxy / std::sqrt(std::max(1e-12, sxx * syy));
+        };
+        const auto* t = p.engine().userWaves().t[size_t(k)].load();
+        CHECK(err.isEmpty() && k == 0 && p.userWaveName(0) == "tandem_selftest_third" && corr3(t) > 0.995,
+              "a single-cycle WAV becomes your wave U1 (resampled, centred, its name kept)");
+        TandemProcessor::set(p.param("osc1_wave", 0), float(td::kWAlt1));             // OSC 1 on its first alternative slot...
+        TandemProcessor::set(p.param("osc1_alt1", 0), float(td::WaveBank::kNumAlt + k)); // ...which holds your wave
+        const Stats st = play(p, sr, block, {57}, 0.4, 0.2);
+        CHECK(st.finite && st.peak > 0.02, "OSC 1 plays your wave");
+        {   // the editor shows it by name
+            std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+            juce::ignoreUnused(ed);
+        }
+        juce::MemoryBlock mb;
+        p.getStateInformation(mb);
+        TandemProcessor q;
+        q.setStateInformation(mb.getData(), int(mb.getSize()));
+        CHECK(q.userWaveName(0) == "tandem_selftest_third" && corr3(q.engine().userWaves().t[0].load()) > 0.995
+                  && juce::roundToInt(q.value("osc1_alt1", 0)) == td::WaveBank::kNumAlt,
+              "your wave is kept with the session");
+        const auto saveErr = p.saveLayerPatch("selftest own wave", 0);
+        const int mine = [&] { const auto l = p.presetList(); for (int i = 0; i < int(l.size()); ++i) if (l[size_t(i)].name == "selftest own wave") return i; return -1; }();
+        // A different wave of yours sits in U1 now, and layer 1 uses it: the patch's wave must go elsewhere.
+        std::vector<float> saw(TandemProcessor::kCycle);
+        for (int i = 0; i < TandemProcessor::kCycle; ++i) saw[size_t(i)] = 1.0f - 2.0f * float(i) / float(TandemProcessor::kCycle);
+        p.setUserWave(0, "another", saw);
+        p.loadIntoLayer(mine, 1);
+        const int to = juce::roundToInt(p.value("osc1_alt1", 1)) - td::WaveBank::kNumAlt;
+        CHECK(saveErr.isEmpty() && mine >= 0 && to > 0 && to < td::kUserWaves && p.userWaveName(0) == "another"
+                  && p.userWaveName(to) == "tandem_selftest_third" && corr3(p.engine().userWaves().t[size_t(to)].load()) > 0.995,
+              "a saved patch brings its wave along; another wave of yours in use keeps its slot (the patch's goes to the next)");
+        p.loadIntoLayer(mine, 0);                              // the same wave again: shared, not copied
+        CHECK(juce::roundToInt(p.value("osc1_alt1", 0)) == td::WaveBank::kNumAlt + to && p.userWaveName(0) == "another",
+              "the same wave twice is shared");
+        p.deleteUserPreset(mine);
+        CHECK(p.importWave(3, juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("no such file.wav")).isNotEmpty()
+                  && p.userWaveName(3).isEmpty(),
+              "a file Tandem can't read is turned down, and the slot stays as it was");
+        tmp.deleteFile();
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;
