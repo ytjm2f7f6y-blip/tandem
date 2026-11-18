@@ -54,6 +54,33 @@ def rrect(d, x0, y0, x1, y1, r, **kw):
     d.rounded_rectangle([P(x0), P(y0), P(x1), P(y1)], radius=P(r), **kw)
 
 
+DIE_PIPS = {1: [(0, 0)], 2: [(-1, -1), (1, 1)], 3: [(-1, -1), (0, 0), (1, 1)], 4: [(-1, -1), (1, -1), (-1, 1), (1, 1)],
+            5: [(-1, -1), (1, -1), (0, 0), (-1, 1), (1, 1)], 6: [(-1, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (1, 1)]}
+
+
+def dice_icon(img, cx, cy, size=10.2):
+    """Two dice in mid-tumble, printed: solid ink, the pips knocked out to the powder coat underneath.
+    cx, cy: the pair's centre in points; size: a die's side in points."""
+    for face, dx, dy, turn in ((5, -0.56, 0.10, -15.0), (3, 0.60, -0.14, 11.0)):
+        k = 4                                                        # drawn at 4x, then brought down: clean edges
+        side = int(round(P(size) * k))
+        pad = side // 3
+        die = Image.new("L", (side + 2 * pad, side + 2 * pad), 0)
+        dd = ImageDraw.Draw(die)
+        dd.rounded_rectangle([pad, pad, pad + side, pad + side], radius=side * 0.2, fill=255)
+        pip_r, pip_off = side * 0.105, side * 0.27
+        mid = pad + side / 2
+        for u, v in DIE_PIPS[face]:
+            px, py = mid + u * pip_off, mid + v * pip_off
+            dd.ellipse([px - pip_r, py - pip_r, px + pip_r, py + pip_r], fill=0)
+        die = die.rotate(turn, resample=Image.BICUBIC, expand=False)
+        die = die.resize((die.width // k, die.height // k), Image.LANCZOS)
+        x0 = int(round(P(cx + dx * size))) - die.width // 2
+        y0 = int(round(P(cy + dy * size))) - die.height // 2
+        box = (x0, y0, x0 + die.width, y0 + die.height)
+        img.paste(ImageChops.lighter(img.crop(box), die), box)
+
+
 def navy_and_shift():
     nv = Image.new("L", (W, H), 0)
     sh = Image.new("L", (W, H), 0)
@@ -79,6 +106,7 @@ def navy_and_shift():
     def shift_word(xy, s):
         text(ds, (xy[0] + SHIFT_OFFSET[0], xy[1] + SHIFT_OFFSET[1]), s, f_shift, spacing=0.08)
 
+    icons = []
     for c in L.CONTROLS:
         t = c["type"]
         x, y = c["x"], c["y"]
@@ -136,7 +164,9 @@ def navy_and_shift():
                 ly = L.lamp_y(c)
                 for lx, s in zip(L.lamp_xs(c), c["lamps"]):
                     text(d, (lx, ly - 8.6), s, f_lamp, spacing=0.04)
-            if c.get("label"):
+            if c.get("label", "").startswith("icon:"):          # a printed picture in place of a word
+                icons.append((c["label"][5:], x, y + c["h"] / 2 + 12.5))
+            elif c.get("label"):
                 if c.get("label_side") == "right":
                     text(d, (x + c["w"] / 2 + 7, y + 0.4), c["label"], f_sub, anchor="lm", spacing=0.06)
                 elif c.get("cap") == "shift":
@@ -146,6 +176,10 @@ def navy_and_shift():
                     text(d, (x, y + c["h"] / 2 + 9.5), c["label"], f, spacing=0.06)
             if c.get("shift"):
                 shift_word((x, y + c["h"] / 2 + 19.5), c["shift"])
+
+    for kind, x, y in icons:
+        if kind == "dice":
+            dice_icon(nv, x, y)
 
     for s, x, y, size, ink, anchor in L.PRINT:
         if ink == "glyph":

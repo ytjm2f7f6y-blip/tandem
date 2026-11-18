@@ -200,7 +200,7 @@ key("tap", 334, 640, "TAP", w=34, h=24, shift="DIVISION")
 knob("clock", "med", 404, 634, "TEMPO", labels([(0, "40"), (1, "240")]), T10, set_=0.45)
 key("arp_sync", 470, 640, "HOST", set_=True)
 # Variation: DICE rolls a new set of small differences, note by note; VARY sets how much of it plays.
-key("dice", 352, 726, "DICE", w=34, h=22)
+key("dice", 352, 726, "icon:dice", w=34, h=22)                 # labelled with a printed pair of dice
 knob("vary", "small", 446, 722, "VARY", set_=0.3)
 
 # ---- EFFECTS (the edited layer's)
