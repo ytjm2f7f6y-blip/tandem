@@ -26,6 +26,7 @@ struct Shot {
     const char* tagFor = nullptr;         // a control, its value tag showing
     const char* focusOn = nullptr;        // a control with keyboard focus
     int layer = 0;                        // the layer being edited
+    int browse = -1;                      // a layer's sound browser open
 };
 
 float gMult = 1.0f;                       // ui_snapshot <folder> <scale>: every shot that much larger
@@ -49,6 +50,7 @@ void shot(const juce::String& dir, const Shot& s) {
     if (s.assignLatched) te->latchAssign();
     if (s.tagFor) te->showTagFor(s.tagFor);
     if (s.focusOn) te->focusControl(s.focusOn);
+    if (s.browse >= 0) te->openBrowser(s.browse);
     auto img = ed->createComponentSnapshot(ed->getLocalBounds(), true, 1.0f);
     juce::File f(dir + "/" + s.file);
     f.deleteFile();
@@ -76,6 +78,7 @@ int main(int argc, char** argv) {
     shot(dir, {"ui_shift_curve.png", dice, 2, 1, nullptr, nullptr, false, true});
     shot(dir, {"ui_vary_page.png", dice, 0, 8, "vary"});
     shot(dir, {"ui_matrix_overview_tag.png", dice, 2, 0, nullptr, nullptr, false, false, 1.0f, false, nullptr, "f_cutoff"});
+    { Shot b{"ui_browser_layer2.png", 0, 2, 0}; b.layer = 1; b.browse = 1; shot(dir, b); }
     shot(dir, {"ui_keyboard_focus.png", 0, 1, 0, nullptr, nullptr, false, false, 1.0f, false, nullptr, nullptr, "f_res"});
     // Stage 2: both layers, the play modes, the arpeggiators.
     auto named = [](const char* n) { for (int i = 0; i < tpre::kNumFactory; ++i) if (juce::String(tpre::kFactory[i].name) == n) return i; return 0; };

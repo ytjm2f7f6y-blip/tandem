@@ -14,6 +14,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -77,10 +78,12 @@ struct WaveTable {
 inline int levelFor(float incAbs) {
     // Want (1024 >> l) * inc < 0.7, ie l >= log2(1024 * inc / 0.7).
     const float r = incAbs * (1024.0f / 0.7f);
-    if (r <= 1.0f) return 0;
-    int e;
-    const float m = std::frexp(r, &e);   // r = m * 2^e, m in [0.5, 1)
-    const int l = (m == 0.5f) ? e - 1 : e;
+    if (!(r > 1.0f)) return 0;
+    // The exponent and mantissa straight from the bits (r is normal and above 1 here): r = m 2^e, m in [0.5, 1).
+    uint32_t bits;
+    std::memcpy(&bits, &r, 4);
+    const int e = int((bits >> 23) & 0xffu) - 126;
+    const int l = (bits & 0x7fffffu) == 0 ? e - 1 : e;      // m == 0.5 exactly: a power of two
     return l > WaveTable::kLevels - 1 ? WaveTable::kLevels - 1 : l;
 }
 

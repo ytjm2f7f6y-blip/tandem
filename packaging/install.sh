@@ -22,11 +22,18 @@ echo "Installing $SHOWN version $VERSION from: $HERE"
 mkdir -p "$COMPONENTS"
 rm -rf "$COMPONENTS/$NAME.component"
 cp -R "$HERE/$NAME.component" "$COMPONENTS/"
+# Tandem SC: the same synth with its side chain input switched on, as a separate plugin to try.
+SC="Tandem SC"
+if [ -d "$HERE/$SC.component" ]; then
+    rm -rf "$COMPONENTS/$SC.component"
+    cp -R "$HERE/$SC.component" "$COMPONENTS/"
+fi
 
 # These builds are signed for personal use rather than by a registered Apple
 # developer, so macOS would block them as "downloaded from the internet".
-# Clearing that flag on this one item is what lets it load.
+# Clearing that flag on these items is what lets them load.
 xattr -dr com.apple.quarantine "$COMPONENTS/$NAME.component" 2>/dev/null || true
+xattr -dr com.apple.quarantine "$COMPONENTS/$SC.component" 2>/dev/null || true
 
 # Make Logic notice the new Audio Unit: drop the system's Audio Unit cache
 # (macOS rebuilds it) and restart its registrar.
@@ -36,4 +43,5 @@ killall -9 AudioComponentRegistrar 2>/dev/null || true
 echo
 echo "Done: $SHOWN $VERSION installed to:"
 echo "  $COMPONENTS/$NAME.component"
+[ -d "$COMPONENTS/$SC.component" ] && echo "  $COMPONENTS/$SC.component  (the side chain test)"
 echo "Restart Logic, then find '$SHOWN' under Audio Units > Rumpus Room Records."

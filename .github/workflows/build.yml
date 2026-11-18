@@ -24,6 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Panel layout check (labels clear of the box edges, nothing overlapping)
+        run: |
+          python3 -m pip install --quiet --break-system-packages pillow 2>/dev/null || python3 -m pip install --quiet pillow
+          TD_LAYOUT=layout_one python3 art/lint_layout.py
+          TD_DRAWER=1 TD_LAYOUT=layout_one python3 art/lint_layout.py
+
       - name: Configure
         run: >
           cmake -B build -G "Unix Makefiles"
@@ -56,17 +62,27 @@ jobs:
           codesign --verify --deep --strict "$b"
           lipo -info "$b/Contents/MacOS/$NAME" | tee binary.log
           du -sh "$b" | tee -a binary.log
+          sc="build/TandemSC_artefacts/Release/AU/Tandem SC.component"     # the side chain test
+          codesign --force --deep --sign - "$sc"
+          codesign --verify --deep --strict "$sc"
 
       - name: Validate Audio Unit (auval, the check Logic runs)
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
           cp -R "$ARTEFACTS/AU/$NAME.component" ~/Library/Audio/Plug-Ins/Components/
+          cp -R "build/TandemSC_artefacts/Release/AU/Tandem SC.component" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 3
           auval -strict -v aumu Tndm SamP 2>&1 | tee auval.log
 
       - name: Play notes through the installed Audio Unit (as Logic hosts it)
         run: build/au_host_artefacts/Release/au_host 2>&1 | tee auhost.log
+
+      - name: The side chain test (Tandem SC: auval, then notes)
+        continue-on-error: true
+        run: |
+          auval -strict -v aumu TnSC SamP 2>&1 | tee auval_sc.log
+          build/au_host_artefacts/Release/au_host TnSC 2>&1 | tee auhost_sc.log
 
       - name: Validate Audio Unit (pluginval)
         run: |
@@ -82,6 +98,7 @@ jobs:
           STAGE="dist/tandem"
           mkdir -p "$STAGE"
           cp -R "$ARTEFACTS/AU/$NAME.component" "$STAGE/"
+          cp -R "build/TandemSC_artefacts/Release/AU/Tandem SC.component" "$STAGE/"
           cp packaging/install.sh "$STAGE/install.sh"
           cp packaging/READ_ME.txt "$STAGE/READ ME.txt"
           # Versioned volume name, so an older disk still mounted can't be mistaken for it.
@@ -123,4 +140,7 @@ jobs:
           note "Binary" binary.log
           note "auval (tail)" auval.short
           note "Hosted as an Audio Unit" auhost.log
+          tail -n 4 auval_sc.log > auval_sc.short 2>/dev/null || true
+          note "Tandem SC: auval (tail)" auval_sc.short
+          note "Tandem SC: hosted" auhost_sc.log
           note "pluginval (summary)" pluginval.short

@@ -570,7 +570,8 @@ int main() {
         auto ev = [&](juce::Point<float> at, juce::Point<float> down) {
             return juce::MouseEvent(src, at, juce::ModifierKeys(), juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, down, t0, 1, at != down);
         };
-        const juce::Point<float> line(layout::kDispX + 60, layout::kDispY + 26 + 8);
+        const float gk = layout::kDispW / 328.0f;            // the display's pages are drawn on a 328 x 98 glass, scaled up
+        const juce::Point<float> line(layout::kDispX + 60 * gk, layout::kDispY + (26 + 8) * gk);
         te->mouseDown(ev(line, line));
         te->mouseDrag(ev(line.translated(30, -30), line));
         te->mouseUp(ev(line.translated(30, -30), line));
@@ -589,6 +590,80 @@ int main() {
               "a slot copied to the other layer goes into its first free slot");
         te->doUndo();
         CHECK(juce::roundToInt(p.value("m2_src", 1)) == td::kMsNone, "UNDO takes the copy back");
+    }
+    {   // The arpeggiator's window shows and sets the edited layer's mode, range and division; the edit lamps pick the layer.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        auto src = juce::Desktop::getInstance().getMainMouseSource();
+        const auto t0 = juce::Time::getCurrentTime();
+        auto click = [&](juce::Point<float> at, juce::ModifierKeys mods = {}) {
+            const juce::MouseEvent ev(src, at, mods, juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, at, t0, 1, false);
+            te->mouseDown(ev);
+            te->mouseUp(ev);
+        };
+        const float w3 = layout::kArpWinW / 3, cy = layout::kArpWinY + layout::kArpWinH / 2;
+        const int mode0 = juce::roundToInt(p.value("arp_mode")), range0 = juce::roundToInt(p.value("arp_range"));
+        click({layout::kArpWinX + w3 * 0.5f, cy});
+        click({layout::kArpWinX + w3 * 1.5f, cy});
+        CHECK(juce::roundToInt(p.value("arp_mode")) == mode0 + 1 && juce::roundToInt(p.value("arp_range")) == range0 + 1,
+              "clicking the arpeggiator window's parts steps its mode and its range");
+        click({layout::kArpWinX + w3 * 0.5f, cy}, juce::ModifierKeys(juce::ModifierKeys::altModifier));
+        CHECK(juce::roundToInt(p.value("arp_mode")) == mode0, "Alt-click steps back");
+        const int div0 = juce::roundToInt(p.value("arp_div"));
+        const juce::Point<float> divPt(layout::kArpWinX + w3 * 2.5f, cy);
+        te->mouseWheelMove(juce::MouseEvent(src, divPt, {}, juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, te, te, t0, divPt, t0, 1, false),
+                           juce::MouseWheelDetails{0.0f, 0.25f, false, false, false});
+        CHECK(juce::roundToInt(p.value("arp_div")) != div0, "scrolling over the division changes it");
+        const auto w2 = layout::kPatchWin[1];
+        click({w2[0] - 16.0f, w2[1] + w2[3] / 2});               // layer 2's number
+        const bool two = p.editLayer() == 1;
+        click({layout::kPatchWin[0][0] - 16.0f, layout::kPatchWin[0][1] + layout::kPatchWin[0][3] / 2});   // and layer 1's
+        CHECK(two && p.editLayer() == 0, "clicking a layer's number (or the lamp by it) edits that layer");
+        TandemProcessor::set(p.param("arp_mode", 1), float(td::kArpChord));
+        p.setEditLayer(1);
+        CHECK(juce::roundToInt(p.value("arp_mode")) == td::kArpChord, "the window follows the edited layer (layer 2's arpeggiator)");
+    }
+    {   // Each layer's sound browser: kinds, search, a click plays it on the layer, favourites.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+        const auto favBefore = SoundBrowser::favouritesFile().loadFileAsString();
+        const bool hadFav = SoundBrowser::favouritesFile().existsAsFile();
+        te->openBrowser(1);
+        auto* b = te->browser();
+        CHECK(b != nullptr && b->layer() == 1 && b->isVisible(), "clicking layer 2's name opens its sound browser");
+        if (b) {
+            b->setKind(SoundBrowser::kinds().indexOf("Bass"));
+            bool allBass = b->numRows() > 3;
+            const auto list = p.presetList();
+            for (int r = 0; r < b->numRows(); ++r) allBass = allBass && !b->rowName(r).contains("pad");
+            b->setSearch("reese");
+            CHECK(allBass && b->numRows() == 1 && b->rowName(0) == "reese", "the browser lists a kind (basses), and a search finds a sound by name");
+            b->choose(0);
+            CHECK(p.layerName(1) == "reese" && p.layerName(0) == "init" && p.editLayer() == 1, "a click puts it on layer 2 (and edits layer 2)");
+            b->setSearch("split bass");
+            const int nParts = b->numRows();
+            b->choose(1);
+            CHECK(nParts == 2 && p.layerName(1) == "split bass pad (2)", "either layer of a two-layer sound can be chosen in it");
+            b->setSearch("");
+            b->setKind(SoundBrowser::kinds().indexOf("Pad"));
+            const auto padName = b->rowName(0);
+            const bool wasFav = b->isFavourite(0);
+            if (!wasFav) b->toggleFavourite(0);
+            b->setKind(SoundBrowser::kinds().indexOf("Favourites"));
+            bool found = false;
+            for (int r = 0; r < b->numRows(); ++r) found = found || b->rowName(r) == padName;
+            CHECK(found, "a starred sound is in Favourites");
+            CHECK(b->keyPressed(juce::KeyPress(juce::KeyPress::downKey)), "the arrow keys move through the list");
+        }
+        te->closeBrowser();
+        CHECK(te->browser() == nullptr, "and it closes");
+        if (hadFav) SoundBrowser::favouritesFile().replaceWithText(favBefore); else SoundBrowser::favouritesFile().deleteFile();
     }
     {   // Your own waves: imported from a file into a slot, played, kept with the session and with a saved patch.
         TandemProcessor p;

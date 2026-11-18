@@ -19,7 +19,8 @@ inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 // 2^x, accurate to about 2e-6 relative (0.003 cents) for |x| < 60.
 inline float exp2Fast(float x) {
     x = clampf(x, -60.0f, 60.0f);
-    const float fl = std::floor(x);
+    float fl = float(int(x));                     // floor, without the library call (|x| <= 60)
+    if (fl > x) fl -= 1.0f;
     const float f = x - fl;
     const float p = 1.0f + f * (0.693147180f + f * (0.240226507f + f * (0.0555041087f + f * (0.00961812911f + f * (0.00133335581f + f * 0.000154035304f)))));
     int32_t bits;

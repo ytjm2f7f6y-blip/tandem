@@ -99,6 +99,11 @@ def key(pid, x, y, label, w=30, h=19, led=True, set_=False, lamps=None, lit=(), 
                      "set": set_, "lamps": lamps, "lit": list(lit), "shift": shift, "cap": cap, "label_side": label_side})
 
 
+def key_beside(knob_y, kind="med", h=19):
+    """The y of a key whose caption sits on the same line as the name of a knob at knob_y."""
+    return knob_y + KNOBS[kind] + NAME_GAP - h / 2 - 9.5
+
+
 def fader(pid, x, y, travel, name, scale=False, set_=0.5):
     CONTROLS.append({"id": pid, "type": "fader", "x": x, "y": y, "travel": travel, "name": name, "scale": scale, "set": set_})
 
@@ -117,24 +122,25 @@ XC = (X0 + X1) / 2
 OSC_WAVES = ["icon:sine", "icon:saw", "icon:square", "icon:pulse", "icon:tri", "icon:noise", "1", "2", "3", "4", "5", "6"]
 OSC2_WAVES = ["icon:sine", "icon:saw", "icon:square", "icon:pulse", "icon:tri", "icon:noise", "1", "2", "3", "D1", "D2", "D3"]
 SUBHEADS += [("OSC 1", X0 + 14, X0 + 170, Y1 + 36), ("OSC 2", X1 - 170, X1 - 14, Y1 + 36)]
-ring("o1_wave", X0 + 86, Y1 + 106, "WAVEFORM", OSC_WAVES, 26.0, set_=1)
-ring("o2_wave", X1 - 86, Y1 + 106, "WAVEFORM", OSC2_WAVES, 26.0, set_=2)
-key("o_sync", XC, Y1 + 106, "SYNC", lamps=["2›1", "1›2"], lit=())
+ring("o1_wave", X0 + 86, Y1 + 100, "WAVEFORM", OSC_WAVES, 26.0, set_=1)
+ring("o2_wave", X1 - 86, Y1 + 100, "WAVEFORM", OSC2_WAVES, 26.0, set_=2)
+key("o_sync", XC, Y1 + 130, "SYNC", lamps=["2›1", "1›2"], lit=())              # its caption on the WAVEFORM line
 TUNE = labels([(0, "–7"), (0.5, "0"), (1, "+7")])
 FINE = labels([(0, "–50"), (0.5, "0"), (1, "+50")])
-knob("o1_tune", "med", X0 + 44, Y1 + 202, "TUNE", TUNE, ticks(14), set_=0.5)
-knob("o1_fine", "med", X0 + 126, Y1 + 202, "FINE", FINE, ticks(10), sub="CENTS", set_=0.5)
-knob("o2_tune", "med", X1 - 126, Y1 + 202, "TUNE", TUNE, ticks(14), set_=1.0)
-knob("o2_fine", "med", X1 - 44, Y1 + 202, "FINE", FINE, ticks(10), sub="CENTS", set_=0.56)
-ring("octave", XC, Y1 + 206, "OCTAVE", ["–2", "–1", "0", "+1", "+2"], 30.0, set_=2)
-SUBHEADS.append(("MODULATION", X0 + 14, X1 - 14, Y1 + 290))
-MY = Y1 + 332
+TY = Y1 + 198
+knob("o1_tune", "med", X0 + 44, TY, "TUNE", TUNE, ticks(14), set_=0.5)
+knob("o1_fine", "med", X0 + 126, TY, "FINE", FINE, ticks(10), sub="CENTS", set_=0.5)
+knob("o2_tune", "med", X1 - 126, TY, "TUNE", TUNE, ticks(14), set_=1.0)
+knob("o2_fine", "med", X1 - 44, TY, "FINE", FINE, ticks(10), sub="CENTS", set_=0.56)
+ring("octave", XC, TY - 1, "OCTAVE", ["–2", "–1", "0", "+1", "+2"], 30.0, set_=2)          # its name on the TUNE line
+SUBHEADS.append(("MODULATION", X0 + 14, X1 - 14, Y1 + 278))
+MY = Y1 + 318
 knob("m_detune", "med", X0 + 58, MY, "DETUNE", set_=0.35)
-key("m_osc", X0 + 128, MY + 8, "TO OSC", lamps=["1", "2"], lit=(0, 1))
+key("m_osc", X0 + 128, key_beside(MY), "TO OSC", lamps=["1", "2"], lit=(0, 1))
 knob("m_wave", "med", X0 + 205, MY, "WAVE / PWM", set_=0.4)
-key("m_wsrc", X0 + 275, MY + 8, "SOURCE", lamps=["ENV1", "LFO1"], lit=(1,))
-knob("m_pitch", "med", X1 - 113, MY, "PITCH MOD", set_=0.1)
-key("m_psrc", X1 - 41, MY + 8, "SOURCE", lamps=["ENV1", "LFO1", "X-MOD"], lit=(1,))
+key("m_wsrc", X0 + 275, key_beside(MY), "SOURCE", lamps=["ENV1", "LFO1"], lit=(1,))
+knob("m_pitch", "med", X1 - 117, MY, "PITCH MOD", set_=0.1)
+key("m_psrc", X1 - 45, key_beside(MY), "SOURCE", lamps=["ENV1", "LFO1", "X-MOD"], lit=(1,))
 
 # ---- MIXER (into the filter)
 X0, X1 = BX["mix"], BX1["mix"]
@@ -150,28 +156,29 @@ X0, X1 = BX["vcf"], BX1["vcf"]
 XC = (X0 + X1) / 2
 knob("f_cutoff", "large", X0 + 72, Y1 + 96, "CUTOFF", set_=0.62)
 knob("f_res", "large", X1 - 72, Y1 + 96, "RESONANCE", set_=0.45)
-TYPE_WIN = {"id": "f_type", "x": XC, "y": Y1 + 178, "w": 108, "h": 26}
-key("f_prev", XC - 72, Y1 + 178, "", w=22, h=19, led=False)
-key("f_next", XC + 72, Y1 + 178, "", w=22, h=19, led=False)
-PRINT += [("◂", XC - 72, Y1 + 178, 9.0, "glyph", "mm"), ("▸", XC + 72, Y1 + 178, 9.0, "glyph", "mm")]
+TYPE_WIN = {"id": "f_type", "x": XC, "y": Y1 + 178, "w": 140, "h": 26}
+key("f_prev", XC - 88, Y1 + 178, "", w=22, h=19, led=False)
+key("f_next", XC + 88, Y1 + 178, "", w=22, h=19, led=False)
+PRINT += [("◂", XC - 88, Y1 + 178, 9.0, "glyph", "mm"), ("▸", XC + 88, Y1 + 178, 9.0, "glyph", "mm")]
 TYPE_LABEL_Y = Y1 + 205
-knob("f_mod", "med", X0 + 64, Y1 + 262, "MODULATION", set_=0.45)
-key("f_msrc", XC, Y1 + 270, "SOURCE", lamps=["ENV1", "LFO1", "OSC2"], lit=(0,))
-knob("f_delta", "med", X1 - 64, Y1 + 262, "Δ-CUTOFF", BIPOLAR, ticks(10), set_=0.5)
-key("f_kt", X0 + 64, Y1 + 352, "KEYTRACK", lamps=["HALF", "FULL"], lit=(0,))
-key("f_restype", XC, Y1 + 352, "RES TYPE", lamps=["1", "2"], lit=(0,))
-key("f_route", X1 - 64, Y1 + 352, "ROUTING", lamps=["ST", "PAR", "SER"], lit=(0,))
+FMY = Y1 + 256
+knob("f_mod", "med", X0 + 64, FMY, "MODULATION", set_=0.45)
+key("f_msrc", XC, key_beside(FMY), "SOURCE", lamps=["ENV1", "LFO1", "OSC2"], lit=(0,))
+knob("f_delta", "med", X1 - 64, FMY, "Δ-CUTOFF", BIPOLAR, ticks(10), set_=0.5)
+key("f_kt", X0 + 64, Y1 + 348, "KEYTRACK", lamps=["HALF", "FULL"], lit=(0,))
+key("f_restype", XC, Y1 + 348, "RES TYPE", lamps=["1", "2"], lit=(0,))
+key("f_route", X1 - 64, Y1 + 348, "ROUTING", lamps=["ST", "PAR", "SER"], lit=(0,))
 
 # ---- LFO 1 and LFO 2
 X0, X1 = BX["lfo"], BX1["lfo"]
 LFO_WAVES = ["icon:sine", "icon:saw", "icon:sh", "icon:square", "icon:ramp", "icon:noise", "icon:tri", "icon:nsine", "1", "2", "HF", "TRK"]
-SUBHEADS += [("LFO 1", X0 + 10, X1 - 10, Y1 + 36), ("LFO 2", X0 + 10, X1 - 10, Y1 + 280)]
-ring("l_wave", X0 + 56, Y1 + 120, "WAVE", LFO_WAVES, 26.0, set_=6)
-FADER_Y, FADER_TRAVEL = Y1 + 164, 132
+SUBHEADS += [("LFO 1", X0 + 10, X1 - 10, Y1 + 36), ("LFO 2", X0 + 10, X1 - 10, Y1 + 274)]
+ring("l_wave", X0 + 56, Y1 + 116, "WAVE", LFO_WAVES, 26.0, set_=6)
+FADER_Y, FADER_TRAVEL = Y1 + 156, 132
 fader("l_rate", X0 + 122, FADER_Y, FADER_TRAVEL, "RATE", scale=True, set_=0.55)
 fader("l_delay", X0 + 154, FADER_Y, FADER_TRAVEL, "DELAY", set_=0.0)
-knob("lfo2_rate", "med", X0 + 52, Y1 + 322, "RATE", set_=0.45)
-key("lfo2_trig", X0 + 128, Y1 + 330, "TRIGGER", lamps=["WHL", "AT", "ON"], lit=(0,))
+knob("lfo2_rate", "med", X0 + 52, Y1 + 316, "RATE", set_=0.45)
+key("lfo2_trig", X0 + 128, key_beside(Y1 + 316), "TRIGGER", lamps=["WHL", "AT", "ON"], lit=(0,))
 
 # ---- ENVELOPES
 X0, X1 = BX["env"], BX1["env"]
@@ -182,10 +189,11 @@ for i, (pid, nm) in enumerate(zip(["e1_h", "e1_a", "e1_d", "e1_s", "e1_r"], "HAD
     fader(pid, E1[i], FADER_Y, FADER_TRAVEL, nm, scale=(i == 0), set_=[0.0, 0.08, 0.5, 0.25, 0.35][i])
 for i, (pid, nm) in enumerate(zip(["e2_a", "e2_d", "e2_s", "e2_r"], "ADSR")):
     fader(pid, E2[i], FADER_Y, FADER_TRAVEL, nm, scale=(i == 0), set_=[0.02, 0.4, 0.8, 0.3][i])
-knob("e1_vel", "med", X0 + 44, Y1 + 316, "VELOCITY", BIPOLAR, ticks(10), sub="TO ENV 1", set_=0.6)
-key("e1_mode", X0 + 126, Y1 + 324, "MODE", lamps=["INV", "LOOP"], lit=())
-knob("e2_vel", "med", X0 + 226, Y1 + 316, "VELOCITY", BIPOLAR, ticks(10), sub="TO VCA", set_=0.62)
-key("vca_src", X1 - 40, Y1 + 324, "VCA", lamps=["ENV2", "ENV3", "GATE"], lit=(0,), shift="ENV 3")
+VY = Y1 + 306
+knob("e1_vel", "med", X0 + 44, VY, "VELOCITY", BIPOLAR, ticks(10), sub="TO ENV 1", set_=0.6)
+key("e1_mode", X0 + 126, key_beside(VY), "MODE", lamps=["INV", "LOOP"], lit=())
+knob("e2_vel", "med", X0 + 226, VY, "VELOCITY", BIPOLAR, ticks(10), sub="TO VCA", set_=0.62)
+key("vca_src", X1 - 40, key_beside(VY), "VCA", lamps=["ENV2", "ENV3", "GATE"], lit=(0,), shift="ENV 3")
 
 # ============================================================ BOTTOM ROW: playing and programming
 Y2 = ROW2[0]
@@ -194,7 +202,7 @@ X0, X1 = BX["perf"], BX1["perf"]
 SUBHEADS.append(("EDIT", X0 + 14, X0 + 148, Y2 + 40))
 key("layer_1", X0 + 46, Y2 + 74, "LAYER 1", w=46, h=26, set_=True, shift="SWAP")
 key("layer_2", X0 + 112, Y2 + 74, "LAYER 2", w=46, h=26, shift="COPY")
-knob("glide", "med", X1 - 48, Y2 + 70, "GLIDE", set_=0.15)
+knob("glide", "small", X1 - 44, Y2 + 74 + 13 + 9.5 - KNOBS["small"] - NAME_GAP, "GLIDE", set_=0.15)
 # Each layer's voice mode, in a printed grid: a key per layer steps it, a lamp under each mode.
 SUBHEADS.append(("VOICE MODE", X0 + 14, X1 - 14, Y2 + 130))
 VOICE_MODES = ["POLY", "SOLO", "LEGATO", "UNISON", "POLY 2"]
@@ -208,26 +216,29 @@ for n, yy in zip((1, 2), VM_Y):
     for k, xx in enumerate(VM_X):
         lamp(f"vm{n}_{k}", xx, yy, r=1.6, style="led", on=(k == (0 if n == 1 else 3)))
 PLAY_MODES = ["SINGLE", "DUAL", "SPLIT", "ONE-TWO", "ROTATE", "RANDOM", "CHAOS", "CASCADE"]
-ring("play_mode", X0 + 66, Y2 + 258, "PLAY MODE", [str(i + 1) for i in range(8)], 36.0, set_=2, shift="ZONES", name_dy=44)
-PLAY_LEGEND_XY = (X0 + 126, Y2 + 212)
+ring("play_mode", X0 + 66, Y2 + 254, "PLAY MODE", [str(i + 1) for i in range(8)], 36.0, set_=2, shift="ZONES", name_dy=44)
+PLAY_LEGEND_XY = (X0 + 126, Y2 + 208)
 PLAY_LEGEND_STEP = 12.6
 
 # ---- ARPEGGIATOR
 X0, X1 = BX["arp"], BX1["arp"]
 for i, (pid, lab) in enumerate([("arp_on", "ON"), ("arp_hold", "HOLD"), ("arp_mode", "MODE"), ("arp_range", "RANGE")]):
-    key(pid, X0 + 30 + 44 * i, Y2 + 74, lab, set_=(pid == "arp_on"))
-key("tap", X0 + 36, Y2 + 160, "TAP", w=34, h=24, shift="DIVISION")
-knob("clock", "med", X0 + 100, Y2 + 154, "TEMPO", labels([(0, "40"), (1, "240")]), T10, set_=0.45)
-key("arp_sync", X1 - 30, Y2 + 160, "HOST", set_=True)
+    key(pid, X0 + 30 + 44 * i, Y2 + 68, lab, set_=(pid == "arp_on"))
+# What the arpeggiator is set to, in a window the plugin writes: mode, range, division (click a part).
+ARP_WIN = {"id": "arp_win", "x": (X0 + X1) / 2, "y": Y2 + 112, "w": 172, "h": 26}
+CY = Y2 + 178
+knob("clock", "med", X0 + 100, CY, "TEMPO", labels([(0, "40"), (1, "240")]), T10, set_=0.45)
+key("tap", X0 + 36, key_beside(CY, h=24), "TAP", w=34, h=24, shift="DIVISION")
+key("arp_sync", X1 - 30, key_beside(CY), "HOST", set_=True)
 # Variation: DICE rolls a new set of small differences, note by note; VARY sets how much of it plays.
-key("dice", X0 + 70, Y2 + 252, "icon:dice", w=34, h=22)                 # labelled with a printed pair of dice
-knob("vary", "small", X0 + 146, Y2 + 246, "VARY", set_=0.3)
+key("dice", X0 + 70, Y2 + 280.5, "icon:dice", w=34, h=22)                # labelled with a printed pair of dice
+knob("vary", "small", X0 + 146, Y2 + 262, "VARY", set_=0.3)
 
 # ---- EFFECTS (the edited layer's)
 X0, X1 = BX["fx"], BX1["fx"]
 XC = (X0 + X1) / 2
 knob("fx_drive", "small", X0 + 46, Y2 + 96, "DRIVE", set_=0.3)
-key("fx_chorus", XC, Y2 + 102, "CHORUS", set_=True)
+key("fx_chorus", XC, key_beside(Y2 + 96, "small"), "CHORUS", set_=True)
 knob("fx_bal", "small", X1 - 46, Y2 + 96, "BALANCE", labels([(0, "DLY"), (1, "REV")]), ticks(10), set_=0.4)
 knob("fx_time", "small", X0 + 46, Y2 + 190, "DELAY", set_=0.5)
 knob("fx_fb", "small", XC, Y2 + 190, "FEEDBACK", set_=0.35)
@@ -236,25 +247,23 @@ key("fx_freeze", XC, Y2 + 278, "FREEZE", w=34, h=22)
 
 # ---- PROGRAMMER: the display, its menus, SHIFT and ASSIGN, and the edit keys
 X0, X1 = BX["prog"], BX1["prog"]
-DISPLAY = {"id": "disp", "x": X0 + 261, "y": Y2 + 96, "w": 346, "h": 116}
+DISPLAY = {"id": "disp", "x": (X0 + X1) / 2, "y": Y2 + 99, "w": 428, "h": 140.5}      # glass 410 x 122.5: 1.25 x the old
 _face_x0 = DISPLAY["x"] - DISPLAY["w"] / 2 + 9
 _face_w = DISPLAY["w"] - 18
 ENC_X = [_face_x0 + _face_w * (i + 0.5) / 4 for i in range(4)]       # the display's four columns
-key("shift", X0 + 42, Y2 + 64, "SHIFT", w=42, h=26, led=False, cap="shift")
-PRINT += [("THEN TOUCH", X0 + 42, Y2 + 98, 9.0, "shift", "mm"), ("ANY CONTROL", X0 + 42, Y2 + 109, 9.0, "shift", "mm"),
-          ("FOR ITS PAGE", X0 + 42, Y2 + 120, 9.0, "shift", "mm")]
-key("assign", X0 + 42, Y2 + 170, "ASSIGN", w=42, h=24)
-PRINT += [("THEN TURN", X0 + 42, Y2 + 200, 8.8, "navy", "mm"), ("A KNOB", X0 + 42, Y2 + 211, 8.8, "navy", "mm")]
+KY1, KY2 = Y2 + 200, Y2 + 276
+key("shift", X0 + 38, KY1, "SHIFT", w=42, h=22, led=False, cap="shift")
+key("assign", X0 + 98, KY1, "ASSIGN", w=42, h=22)
 for i, (pid, lab) in enumerate([("pg_perf", "PERF"), ("pg_voice", "VOICE"), ("pg_mod", "MOD"), ("pg_arp", "ARP"), ("pg_fx", "FX")]):
-    key(pid, X0 + 124 + 69 * i, Y2 + 190, lab, w=34, h=19, set_=(pid == "pg_mod"))
-key("compare", X0 + 42, Y2 + 276, "COMPARE", w=34, h=20, shift="INIT")
-key("write", X0 + 112, Y2 + 276, "WRITE", w=34, h=20, shift="NAME")
-key("page_prev", X0 + 213, Y2 + 276, "", w=34, h=20, led=False)
-key("page_next", X0 + 268, Y2 + 276, "", w=34, h=20, led=False)
-PRINT += [("◂", X0 + 213, Y2 + 276, 9.0, "glyph", "mm"), ("▸", X0 + 268, Y2 + 276, 9.0, "glyph", "mm"),
-          ("PAGE", X0 + 240.5, Y2 + 295.5, 8.8, "navy", "mm")]
-key("undo", X1 - 90, Y2 + 276, "UNDO", w=34, h=20, led=False)
-key("redo", X1 - 36, Y2 + 276, "REDO", w=34, h=20, led=False)
+    key(pid, X0 + 168 + 56 * i, KY1, lab, w=34, h=22, set_=(pid == "pg_mod"))
+key("compare", X0 + 38, KY2, "COMPARE", w=34, h=22, shift="INIT")
+key("write", X0 + 98, KY2, "WRITE", w=34, h=22, shift="NAME")
+key("page_prev", X0 + 200, KY2, "", w=34, h=22, led=False)
+key("page_next", X0 + 252, KY2, "", w=34, h=22, led=False)
+PRINT += [("◂", X0 + 200, KY2, 9.0, "glyph", "mm"), ("▸", X0 + 252, KY2, 9.0, "glyph", "mm"),
+          ("PAGE", X0 + 226, KY2 + 20.5, 8.8, "navy", "mm")]
+key("undo", X1 - 116, KY2, "UNDO", w=34, h=22, led=False)
+key("redo", X1 - 60, KY2, "REDO", w=34, h=22, led=False)
 
 # ---- MIX: each layer's level, pan and send, their voices, and the master volume
 X0, X1 = BX["lmix"], BX1["lmix"]
@@ -274,14 +283,16 @@ PRINT += [("1", X0 + 90, LADDER_Y0, 8.8, "navy", "mm"), ("16", X0 + 90, LADDER_Y
           ("VOICES", X0 + 90, Y2 + 310, 8.8, "navy", "mm")]
 PRINT.append(("MASTER", X1 - 46, MIX_HEAD_Y, 10.0, "navy", "mm"))
 knob("volume", "large", X1 - 46, Y2 + 100, "VOLUME", set_=0.8)
-key("setup", X1 - 46, Y2 + 250, "SETUP", w=44, h=22, led=False)
+key("setup", X1 - 46, Y2 + 238 + KNOBS["small"] + NAME_GAP - 11 - 9.5, "SETUP", w=44, h=22, led=False)
 
 # ============================================================ The top band: the name, and each layer's sound
 BRAND = {"text": "RUMPUS ROOM RECORDS", "x": 40, "y": 26, "size": 15.0}
 TYPE_PLATE = {"text": "TYPE DS 8", "x": 40, "y": 46, "size": 8.8}
 # The two layers' patch windows: the plugin writes the sound's name, with arrows at each end.
-PATCH_WINS = [{"id": "pw1", "x": 580, "y": 34, "w": 236, "h": 30}, {"id": "pw2", "x": 880, "y": 34, "w": 236, "h": 30}]
-PRINT += [("1", 448, 34, 11.0, "navy", "mm"), ("2", 748, 34, 11.0, "navy", "mm")]
+PATCH_WINS = [{"id": "pw1", "x": 486, "y": 38, "w": 300, "h": 34}, {"id": "pw2", "x": 852, "y": 38, "w": 300, "h": 34}]
+for n, pw in enumerate(PATCH_WINS):
+    PRINT.append((str(n + 1), pw["x"] - pw["w"] / 2 - 14, 38, 13.0, "navy", "mm"))
+    lamp(f"edit_{n + 1}", pw["x"] - pw["w"] / 2 - 30, 38, r=3.6, color="red", on=(n == 0))     # lit: the layer the panel edits
 WORDMARK = {"text": "TANDEM", "x": 1360, "y": 28, "size": 34}          # right edge
 SUBLINE = {"text": "BI-TIMBRAL SYNTHESIZER  ·  2 × 16 VOICES", "x": 1360, "y": 52, "size": 8.8}
 STRIPES = {"x1": 1166, "y": 28, "w": 24, "h": 8, "gap": 5}             # five bars in the cap colours, ending at x1
@@ -297,14 +308,14 @@ if DRAWER_OPEN:
     dy = H_PANEL + 62
     knob("d_tune", "trim", 130, dy, "MASTER TUNE", FINE, ticks(10), set_=0.5)
     knob("d_trans", "trim", 262, dy, "TRANSPOSE", labels([(0, "–12"), (0.5, "0"), (1, "+12")]), ticks(12), set_=0.5)
-    key("d_vel", 400, dy + 6, "VELOCITY", lamps=["SOFT", "NORM", "HARD"], lit=(1,))
-    key("d_press", 540, dy + 6, "PRESSURE", lamps=["OFF", "NORM", "HARD"], lit=(1,))
+    key("d_vel", 400, dy + 13, "VELOCITY", lamps=["SOFT", "NORM", "HARD"], lit=(1,))
+    key("d_press", 540, dy + 13, "PRESSURE", lamps=["OFF", "NORM", "HARD"], lit=(1,))
     knob("d_ch1", "trim", 672, dy, "MIDI CH  L1", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=0.0)
     knob("d_ch2", "trim", 790, dy, "MIDI CH  L2", labels([(0, "ALL"), (1, "16")]), ticks(16), set_=0.0)
     knob("d_age", "trim", 916, dy, "AGE", ZERO_TEN, T10, set_=0.5)
-    key("d_pedal", 1046, dy + 6, "PEDAL", lamps=["NORM", "INV"], lit=(0,))
-    key("d_size", 1180, dy + 6, "SIZE", lamps=["80", "100", "125"], lit=(1,))
-    key("d_close", 1340, dy + 6, "CLOSE", w=40, h=22, led=False)
+    key("d_pedal", 1046, dy + 13, "PEDAL", lamps=["NORM", "INV"], lit=(0,))
+    key("d_size", 1180, dy + 13, "SIZE", lamps=["80", "100", "125"], lit=(1,))
+    key("d_close", 1340, dy + 11.5, "CLOSE", w=40, h=22, led=False)
 
 # What the display and the windows show on the mockup.
 DISPLAY_SHOW = {"title": "MOD  MATRIX 1", "page": "2 / 20",

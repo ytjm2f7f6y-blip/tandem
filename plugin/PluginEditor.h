@@ -5,6 +5,7 @@
 
 #include "Layout.h"
 #include "PluginProcessor.h"
+#include "SoundBrowser.h"
 
 #include <functional>
 #include <memory>
@@ -71,6 +72,9 @@ public:
     void tap(double ms);                                     // TAP, at this time (milliseconds)
     void pressControl(const char* controlId);               // as if that key were clicked
     void copySlotToOtherLayer(int slot);                     // the overview's right-click: "Copy it to layer N"
+    void openBrowser(int layer);                             // a layer's sound browser, under its name window
+    void closeBrowser();
+    SoundBrowser* browser() { return browser_.get(); }
     // For tests: one frame of the window's timer, and every area it asks to be repainted.
     void tick() { timerCallback(); }
     std::function<void(juce::Rectangle<int>)> repaintHook;
@@ -81,7 +85,18 @@ public:
 
 private:
     friend class ControlProxy;
-    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001, kPatchWin1 = 2002, kPatchWin2 = 2003 };
+    enum { kNone = -1, kDisplay = 2000, kTypeWin = 2001, kPatchWin1 = 2002, kPatchWin2 = 2003, kArpWin = 2004, kLayerNum1 = 2005, kLayerNum2 = 2006 };
+    // The arpeggiator's window: its three parts (mode, range, division) for the edited layer.
+    static juce::Rectangle<float> arpWin();
+    static int arpPartAt(juce::Point<float> pt);
+    static const char* arpPartKey(int part);
+    void drawArpWindow(juce::Graphics&);
+    void showArpPartMenu(int part);
+    void drawLayerMarks(juce::Graphics&);              // "LAYER n" on the header of each box that shows the edited layer
+    bool extInert() const;                             // EXT IN does nothing just now (no side chain; layer 2 outside CASCADE)
+    int layerSeen_ = -1;
+    std::unique_ptr<SoundBrowser> browser_;
+    void placeBrowser();
 
     void timerCallback() override;
 

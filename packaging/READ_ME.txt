@@ -21,8 +21,11 @@ modes, an arpeggiator and its own effects.
 Top row: the sound of the layer you are editing. Bottom row: playing
 and programming.
 
-The two windows at the top name each layer's sound: click a name for the
-list and put any patch on either layer; the arrows step through them.
+The two windows at the top name each layer's sound. Click a name for its
+sound browser: a click plays a sound on that layer, double-click or Enter
+keeps it. Type to search; star the ones you like (Favourites). The arrows
+at the window's ends step through the sounds. The lit window, the lamp by
+it and "LAYER n" on the boxes' headers show which layer the panel edits.
 
 LAYER 1 / LAYER 2: which layer the panel edits (the display's title says
 L1 or L2). SHIFT + LAYER 1 swaps them; SHIFT + LAYER 2 copies the one you
@@ -35,11 +38,17 @@ plays into layer 2's filter, at layer 2's EXT IN knob). SHIFT + PLAY
 MODE: ZONES; the next key you play sets the split.
 
 ARPEGGIATOR: ON, HOLD, MODE, RANGE for the layer you edit (each layer
-has its own); division, swing and gate on the ARP pages. HOST follows
+has its own); the window under them shows mode, range and division (click
+a part to step it); swing and gate on the ARP pages. HOST follows
 Logic's tempo and beat; turn TEMPO or TAP for Tandem's own clock.
 
-The side chain input is switched off in this build, so layer 1's EXT IN
-knob does nothing yet. Layer 2's EXT IN knob sets CASCADE's level.
+The side chain input is switched off in Tandem, so layer 1's EXT IN knob
+is greyed out. Layer 2's EXT IN knob sets CASCADE's level.
+
+TANDEM SC is installed beside Tandem: the same synth with the side chain
+input switched on, as a test. In Logic, put Tandem SC on a track and play:
+does it make a sound? Then pick a track in its side chain menu (top of the
+plugin window) and turn layer 1's EXT IN up. Tell Claude what happens.
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
 default; a tag beside them shows the value as you turn. UNDO and REDO
