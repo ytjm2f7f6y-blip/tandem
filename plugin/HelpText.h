@@ -20,7 +20,7 @@ inline const Entry kEntries[] = {
     {"m_pitch", "Pitch mod", "How much the source moves the pitch, or how deep the cross modulation goes."},
     {"x_osc1", "OSC 1 level", "How much of oscillator 1 goes into the filter. Past about 6 it drives the filter's input (the O.DRIVE lamp lights)."},
     {"x_osc2", "OSC 2 level", "How much of oscillator 2 goes into the filter."},
-    {"x_ext", "EXT IN level", "On layer 2: how much of layer 1 goes into layer 2's filter in the CASCADE play mode. On layer 1: the side chain, into the filter (switched off in Tandem, so the knob is greyed; on in Tandem SC). SHIFT: the side chain's envelope follower."},
+    {"x_ext", "EXT IN level", "On layer 2: how much of layer 1 goes into layer 2's filter in the CASCADE play mode. On layer 1: the side chain, into the filter (choose its track in the side chain menu at the top of the plugin window in Logic). SHIFT: the side chain's envelope follower."},
     {"odrive", "Overdrive", "Lights when the mixer drives the filter's input into saturation."},
     {"f_cutoff", "Cutoff", "Where the filter starts to cut, 16 Hz to 20 kHz. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},
     {"f_res", "Resonance", "Emphasises the frequencies round the cutoff. Near the top every type sings on its own. SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."},

@@ -72,6 +72,8 @@ public:
     void tap(double ms);                                     // TAP, at this time (milliseconds)
     void pressControl(const char* controlId);               // as if that key were clicked
     void copySlotToOtherLayer(int slot);                     // the overview's right-click: "Copy it to layer N"
+    void askPresetName(int what = 2);                        // WRITE's name dialog. 0, 1: that layer as a patch; 2: both, a performance
+    juce::AlertWindow* dialog() { return dialog_.get(); }
     void openBrowser(int layer);                             // a layer's sound browser, under its name window
     void closeBrowser();
     SoundBrowser* browser() { return browser_.get(); }
@@ -130,7 +132,6 @@ private:
     void showPresetMenu();
     void showTypeMenu();
     void showSizeMenu();
-    void askPresetName(int what = 2);                // 0, 1: save that layer as a patch; 2: both, as a performance
     void showWriteMenu();
     // ---- each layer's patch window
     void drawPatchWindow(juce::Graphics&, int layer);
@@ -145,7 +146,10 @@ private:
     juce::String patchSeen_;
     // ---- the drawer slides up over the bottom of the panel: its controls sit this far above where the layout puts them
     float dy(int ci) const { return ci >= 0 && ci < layout::kNumControls && layout::kControls[ci].drawer ? -layout::kDrawerH : 0.0f; }
-    std::unique_ptr<juce::AlertWindow> saveDialog_;
+    std::unique_ptr<juce::AlertWindow> dialog_;                    // a dialog, inside the window
+    juce::PopupMenu::Options menuOptions();
+    void showDialog(std::unique_ptr<juce::AlertWindow>, std::function<void(int)> done);
+    void showAlert(const juce::String& title, const juce::String& text);
 
     // ---- the display
     const DisplayPage& currentPage() const;
