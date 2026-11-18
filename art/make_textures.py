@@ -10,10 +10,14 @@ import random
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
-import layout as L
+import importlib
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+L = importlib.import_module(os.environ.get("TD_LAYOUT", "layout"))   # layout (stage 1) or layout_final (the mockups)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "build")
+OUT = os.path.join(HERE, os.environ.get("TD_BUILD", "build"))
 FONTS = os.path.join(HERE, "fonts")
 os.makedirs(OUT, exist_ok=True)
 
@@ -160,6 +164,12 @@ def legends():
                     yy = bot - (bot - top) * k / 10
                     d.text(((x - L.FADER_PLATE_W / 2 - 7.5) * TEX, yy * TEX), s_, font=f_num, fill=255, anchor="rm")
             text_centered(d, (x, bot + 23), ctl["name"], f_name)
+        elif t == "key":
+            x, y = ctl["x"], ctl["y"]
+            if ctl.get("label"):
+                text_centered(d, (x, y + ctl["h"] / 2 + 9.5), ctl["label"], f_tog if len(ctl["label"]) > 5 else f_sub, spacing=0.06)
+            if ctl.get("above"):
+                text_centered(d, (x, y - ctl["h"] / 2 - 15.5), ctl["above"], f_num)
         elif t == "lamp" and ctl["id"] == "odrive":
             text_centered(d, L.ODRIVE_LABEL, "O.DRIVE", f_sub, spacing=0.06)
 
@@ -175,6 +185,24 @@ def legends():
         d.line([(p0[0] * TEX, p0[1] * TEX), (p1[0] * TEX, p1[1] * TEX)], fill=255, width=int(0.7 * TEX))
     mid = polar(ctl["x"], ctl["y"], rr + 16.0, (a0 + a1) / 2 - 4)
     text_centered(d, mid, da["text"], f_sub, spacing=0.08)
+
+    # The final layout's extra print: layer shift functions, the patch row, the mixer's columns.
+    for word, x in getattr(L, "LAYER_SHIFT", []):
+        k = next(c for c in L.CONTROLS if c.get("label") and c["type"] == "key" and abs(c["x"] - x) < 1)
+        text_centered(d, (x, k["y"] + k["h"] / 2 + 19.5), "[" + word + "]", f_sub, spacing=0.06)
+    if hasattr(L, "PLAY_LEGEND_XY"):          # the play modes, listed beside their dial
+        lx, ly = L.PLAY_LEGEND_XY
+        f_leg, f_legn = font(LEGEND_MED, 8.4), font(LEGEND_BOLD, 8.4)
+        for i, s_ in enumerate(L.PLAY_MODES):
+            yy = ly + i * L.PLAY_LEGEND_STEP
+            d.text((lx * TEX, yy * TEX), str(i + 1), font=f_legn, fill=255, anchor="lm")
+            d.text(((lx + 10) * TEX, yy * TEX), s_, font=f_leg, fill=255, anchor="lm")
+        d.line([((lx - 5) * TEX, (ly - 7) * TEX), ((lx - 5) * TEX, (ly + 7 * L.PLAY_LEGEND_STEP + 7) * TEX)], fill=255, width=int(0.7 * TEX))
+    if hasattr(L, "PATCH_LABEL_Y"):
+        ks = [c for c in L.CONTROLS if c["id"].startswith("patch_")]
+        section(d, "PATCH", ks[0]["x"] - 10, ks[-1]["x"] + 10, L.PATCH_LABEL_Y, f_sub)
+    for i, x in enumerate(getattr(L, "MIXC", [])):
+        text_centered(d, (x, L.MIX_HEAD_Y), "LAYER " + str(i + 1), f_name, spacing=0.08)
 
     # The filter type window's label.
     tw = L.TYPE_WIN
@@ -407,6 +435,9 @@ def brand():
     # A thin printed rule after the type, as on the old panels.
     d.line([(int(x + 5 * TEX), int(tp["y"] * TEX)), (int((brand_right - 4) * TEX), int(tp["y"] * TEX))], fill=255, width=int(0.5 * TEX))
 
+    if not getattr(L, "BRAND_WORN", True):
+        im.filter(ImageFilter.GaussianBlur(0.5)).save(os.path.join(OUT, "brand_ink.png"))
+        return
     # Fading: an overall drop, broad blotches, fine pitting, and rubbing where hands go.
     fade = blotch_noise(W, H, 90, 3, 30).point(lambda v: int(96 + v * 0.46))
     pits = blotch_noise(W, H, 3, 4, 0.6).point(lambda v: 0 if v > 150 else 255)
@@ -795,8 +826,45 @@ def drum_face():
     im.save(os.path.join(OUT, "drum_face.png"))
 
 
+# The mockup's display page, as a glow mask (the render tints it).
+def display_show():
+    if not hasattr(L, "DISPLAY_SHOW"):
+        return
+    S = 8
+    D = L.DISPLAY
+    inset = 9.0
+    fw, fh = D["w"] - 2 * inset, D["h"] - 2 * inset
+    im = Image.new("L", (int(fw * S), int(fh * S)), 0)
+    d = ImageDraw.Draw(im)
+    sh = L.DISPLAY_SHOW
+    f_t, f_l, f_v = font_px(LEGEND_BOLD, 10.0 * S), font_px(LEGEND_MED, 8.2 * S), font_px(LEGEND_BOLD, 13.0 * S)
+    d.text((6 * S, 9 * S), sh["title"], font=f_t, fill=255, anchor="lm")
+    d.text(((fw - 6) * S, 9 * S), sh["page"], font=f_l, fill=190, anchor="rm")
+    d.line([(6 * S, 17 * S), ((fw - 6) * S, 17 * S)], fill=70, width=int(0.7 * S))
+    cw = fw / 3
+    for i, (lab, val, v) in enumerate(sh["cols"]):
+        x0 = i * cw
+        d.text(((x0 + cw / 2) * S, 25 * S), lab, font=f_l, fill=170, anchor="mm")
+        d.text(((x0 + cw / 2) * S, 38 * S), val, font=f_v, fill=255, anchor="mm")
+        for k in range(12):
+            c0 = k / 12
+            on = c0 < v
+            bx = (x0 + 7 + k * (cw - 14) / 12)
+            d.rectangle([(bx + 0.6) * S, (fh - 13) * S, (bx + (cw - 14) / 12 - 0.6) * S, (fh - 8) * S], fill=255 if on else 45)
+    im = im.filter(ImageFilter.GaussianBlur(0.5 * S / 4))
+    glow = im.filter(ImageFilter.GaussianBlur(2.2 * S / 4)).point(lambda v: int(v * 0.5))
+    ImageChops.lighter(im, glow).save(os.path.join(OUT, "display_show.png"))
+    T = L.TYPE_WIN
+    tw, th = T["w"] - 9, T["h"] - 9
+    im = Image.new("L", (int(tw * S), int(th * S)), 0)
+    ImageDraw.Draw(im).text((tw * S / 2, th * S / 2), L.TYPE_SHOW, font=font_px(LEGEND_BOLD, 12.5 * S), fill=255, anchor="mm")
+    im = im.filter(ImageFilter.GaussianBlur(0.5 * S / 4))
+    ImageChops.lighter(im, im.filter(ImageFilter.GaussianBlur(2 * S / 4)).point(lambda v: int(v * 0.5))).save(os.path.join(OUT, "type_show.png"))
+
+
 if __name__ == "__main__":
     legends()
+    display_show()
     rail_legends()
     brand()
     grease()

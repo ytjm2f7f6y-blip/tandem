@@ -32,6 +32,7 @@ public:
     void noteOff(int note) { for (int i = 0; i < kLayers; ++i) if (layerOn_[size_t(i)]) layer_[size_t(i)].noteOff(note); }
     void sustain(bool on) { for (auto& l : layer_) l.sustain(on); }
     void bend(float v) { for (auto& l : layer_) l.bend(v); }
+    void setTune(float semis) { for (auto& l : layer_) l.setTune(semis); }
     void modWheel(float v) { for (auto& l : layer_) l.modWheel(v); }
     void aftertouch(float v) { for (auto& l : layer_) l.aftertouch(v); }
     void expression(float v) { for (auto& l : layer_) l.expression(v); }

@@ -278,6 +278,13 @@ struct Voice {
     EarSet set[2];
 
     float modOut[kNumModDests] = {};     // the matrix's sum per destination (this sample)
+    float slotZ[kMatrixSlots] = {};      // SMOOTH slots' slewed outputs
+    bool slotFresh = true;               // a voice starting from silence: its SMOOTH slots start where they are
+    // ---- set by the layer before each trigger
+    int key = 60;                        // the key that started it (VARY may play it an octave away)
+    float noteRnd = 0.0f;                // NOTE RND's value for this note, -1..1
+    float varyCut = 0.0f, varyEnvK = 1.0f;   // VARY: octaves on the cutoff, a factor on the envelope times
+    float meter = 0.0f;                  // how loud it was over the last block (its VCA), for the lamps
 
     void init(uint32_t seed) {
         rng = Rng(seed * 2654435761u + 12345u);
@@ -322,6 +329,7 @@ struct Voice {
             ear[1].ph[0][0] = ear[0].ph[0][0];
             ear[1].ph[1][0] = ear[0].ph[1][0];
             e1.kill(); e2.kill(); e3.kill();
+            slotFresh = true;
         }
         dPitch = 0.7f * dPitch + 0.3f * rng.bi();
         dCut = 0.7f * dCut + 0.3f * rng.bi();
@@ -358,7 +366,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
     const float invFs = c.invFs;
 
     // Envelope settings, with drift on their times and the matrix's attack/decay (from this block's start).
-    const float dEnvK = 1.0f + 0.15f * c.driftAmt * dEnv;
+    const float dEnvK = (1.0f + 0.15f * c.driftAmt * dEnv) * varyEnvK;
     const float atkK = exp2Fast(3.0f * modOut[kMdEnv1Attack]), decK = exp2Fast(3.0f * modOut[kMdEnv1Decay]);
     e1.set(c.e1T[1] * dEnvK * atkK, c.e1T[2] * dEnvK * decK, c.e1T[3], c.e1T[4] * dEnvK * decK, c.e1T[0], p.e1Mode == 2, c.fs);
     e2.set(c.e2T[0] * dEnvK, c.e2T[1] * dEnvK, c.e2T[2], c.e2T[3] * dEnvK, 0.0f, false, c.fs);
@@ -382,23 +390,31 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
     const double glideStep = double(c.glideRate) / double(c.fs);
     const float noteK = (float(note) - 60.0f) / 60.0f;
     const float pwmAmt = p.waveMod;
-    const float cutBase = c.cutOct + c.driftAmt * 0.25f * dCut;
+    const float cutBase = c.cutOct + c.driftAmt * 0.25f * dCut + varyCut;
     const float semisDrift = c.driftAmt * (0.06f * dPitch);   // in semitones (6 cents)
     const float voiceGain = 0.5f;
 
     // Matrix slots that are in use.
-    int ms[kMatrixSlots], md[kMatrixSlots], nm = 0;
+    int ms[kMatrixSlots], md[kMatrixSlots], mv[kMatrixSlots], mc[kMatrixSlots], mi[kMatrixSlots], nm = 0;
     float ma[kMatrixSlots];
     for (int i = 0; i < kMatrixSlots; ++i)
-        if (p.mSrc[i] != kMsNone && p.mDst[i] != kMdNone && p.mAmt[i] != 0.0f) { ms[nm] = p.mSrc[i]; md[nm] = p.mDst[i]; ma[nm] = p.mAmt[i]; ++nm; }
+        if (p.mSrc[i] != kMsNone && p.mDst[i] != kMdNone && p.mAmt[i] != 0.0f) {
+            ms[nm] = p.mSrc[i]; md[nm] = p.mDst[i]; ma[nm] = p.mAmt[i]; mv[nm] = p.mVia[i]; mc[nm] = p.mCrv[i]; mi[nm] = i; ++nm;
+        }
+    if (nm == 0) for (auto& m : modOut) m = 0.0f;
+    const float smoothK = 1.0f - std::exp(-1.0f / (0.045f * c.fs));       // SMOOTH: about 45 ms
 
     // The sisters' frequency ratios, for this block.
     float ratio[2][7];
     for (int e = 0; e < nEars; ++e)
         for (int k = 0; k < 7; ++k) ratio[e][k] = k == 0 ? 1.0f : exp2Fast(set[e].cents[k] * c.detuneCents * (1.0f / 1200.0f));
 
-    const float panL = c.binaural ? 1.0f : std::sqrt(0.5f * (1.0f - pan));
-    const float panR = c.binaural ? 1.0f : std::sqrt(0.5f * (1.0f + pan));
+    // Pan, with the matrix's (once a block): in the binaural routing, a balance between the ears.
+    const float panMod = clampf(modOut[kMdPan], -1.0f, 1.0f);
+    const float panAt = clampf(pan + panMod, -1.0f, 1.0f);
+    const float panL = c.binaural ? std::sqrt(1.0f - panMod) : std::sqrt(0.5f * (1.0f - panAt));
+    const float panR = c.binaural ? std::sqrt(1.0f + panMod) : std::sqrt(0.5f * (1.0f + panAt));
+    float loudest = 0.0f;
 
     for (int i = 0; i < c.n; ++i) {
         // ---- modulators
@@ -451,27 +467,42 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
         if (wanderClock >= 1.0f) { wanderClock -= 1.0f; wanderTarget = rng.bi(); }
         wander += (wanderTarget - wander) * 2.0f * invFs;
 
-        // ---- the matrix
+        // ---- the matrix: source, shaped, times the amount, times the VIA source
         if (nm) {
             for (auto& m : modOut) m = 0.0f;
             const float envEff1 = (p.e1Mode == 1 ? -env1 : env1);
-            for (int k = 0; k < nm; ++k) {
-                float s = 0.0f;
-                switch (ms[k]) {
-                    case kMsOsc2: s = ear[0].last[1]; break;
-                    case kMsLfo1: s = lfoL; break;
-                    case kMsLfo2: s = lfo2; break;
-                    case kMsEnv1: s = envEff1; break;
-                    case kMsEnv2: s = env2; break;
-                    case kMsVelocity: s = vel; break;
-                    case kMsAftertouch: s = c.aftertouch; break;
-                    case kMsExpression: s = c.expression; break;
-                    case kMsEnvFollower: s = c.envFollow; break;
-                    case kMsNote: s = noteK; break;
-                    default: break;
+            auto source = [&](int which) {
+                switch (which) {
+                    case kMsOsc2: return ear[0].last[1];
+                    case kMsLfo1: return lfoL;
+                    case kMsLfo2: return lfo2;
+                    case kMsEnv1: return envEff1;
+                    case kMsEnv2: return env2;
+                    case kMsVelocity: return vel;
+                    case kMsAftertouch: return c.aftertouch;
+                    case kMsExpression: return c.expression;
+                    case kMsEnvFollower: return c.envFollow;
+                    case kMsNote: return noteK;
+                    case kMsModWheel: return c.modWheel;
+                    case kMsNoteRnd: return noteRnd;
+                    default: return 0.0f;
                 }
-                modOut[md[k]] += s * ma[k];
+            };
+            for (int k = 0; k < nm; ++k) {
+                float s = source(ms[k]);
+                if (mc[k] == kCurveExp) s *= std::abs(s);
+                float o = s * ma[k];
+                if (mv[k] != kMsNone) o *= source(mv[k]);
+                if (mc[k] == kCurveStep) o = std::round(o * 12.0f) * (1.0f / 12.0f);
+                else if (mc[k] == kCurveSmooth) {
+                    float& z = slotZ[mi[k]];
+                    if (slotFresh) z = o;
+                    z += (o - z) * smoothK;
+                    o = z;
+                }
+                modOut[md[k]] += o;
             }
+            slotFresh = false;
         }
 
         // ---- pitch
@@ -482,7 +513,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
         }
         const float env1Out = (p.e1Mode == 1 ? -env1 : env1) * clampf(1.0f + modOut[kMdEnv1Depth], 0.0f, 2.0f);
         const float basePitch = float(pitch) + uniSemis + 12.0f * float(p.octave) + c.bendSemis + semisDrift + c.driftAmt * 0.03f * wander
-                                + lfo2 * l2PitchSemis;
+                                + lfo2 * l2PitchSemis + 12.0f * modOut[kMdPitch];
         const float vcaBase = (p.vcaSrc == 0 ? env2 : (p.vcaSrc == 1 ? (p.e3Mode == 1 ? std::max(0.0f, 1.0f - env3) : env3) : 1.0f));
         float vca = vcaBase * velVca * clampf(1.0f + modOut[kMdVcaLevel], 0.0f, 2.0f);
         if (l2Vca > 0.0f) {
@@ -490,6 +521,7 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
             vca *= 1.0f - l2Vca * clampf(uni ? lfo2 : 0.5f + 0.5f * lfo2, 0.0f, 1.0f);
         }
         vca = std::max(0.0f, vca);
+        loudest = std::max(loudest, vca);
 
         float earOut[2] = {0, 0};
         for (int e = 0; e < nEars; ++e) {
@@ -702,13 +734,14 @@ inline void Voice::render(BlockCtx& c, float* outL, float* outR, const float* co
             earOut[e] = y * vca * voiceGain;
         }
         if (c.binaural) {
-            outL[i] += earOut[0];
-            outR[i] += earOut[1];
+            outL[i] += earOut[0] * panL;
+            outR[i] += earOut[1] * panR;
         } else {
             outL[i] += earOut[0] * panL;
             outR[i] += earOut[0] * panR;
         }
     }
+    meter = loudest;
 }
 
 }  // namespace td

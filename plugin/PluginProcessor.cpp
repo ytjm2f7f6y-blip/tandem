@@ -12,6 +12,15 @@ TandemProcessor::TandemProcessor()
     for (const auto& d : tp::layerDefs()) layerKeys_.push_back(d.key);
     volume_ = apvts.getParameter(tp::kVolumeId);
     volumeRaw_ = apvts.getRawParameterValue(tp::kVolumeId);
+    setup_.tune = apvts.getRawParameterValue("setup_tune");
+    setup_.transpose = apvts.getRawParameterValue("setup_transpose");
+    setup_.velocity = apvts.getRawParameterValue("setup_velocity");
+    setup_.pressure = apvts.getRawParameterValue("setup_pressure");
+    setup_.ch1 = apvts.getRawParameterValue("setup_ch1");
+    setup_.ch2 = apvts.getRawParameterValue("setup_ch2");
+    setup_.age = apvts.getRawParameterValue("setup_age");
+    setup_.pedal = apvts.getRawParameterValue("setup_pedal");
+    std::fill(std::begin(noteMap_), std::end(noteMap_), -1);
     for (auto* q : getParameters()) all_.push_back(dynamic_cast<juce::RangedAudioParameter*>(q));
     presetSnap_ = currentSetting();
     ab_[0] = ab_[1] = presetSnap_;
@@ -36,6 +45,7 @@ void TandemProcessor::prepareToPlay(double sampleRate, int samplesPerBlock) {
 
 juce::RangedAudioParameter* TandemProcessor::param(const juce::String& key, int layer) const {
     if (key == tp::kVolumeId) return volume_;
+    if (tp::isSetupId(key)) return apvts.getParameter(key);
     return apvts.getParameter(tp::layerId(layer, key));
 }
 
@@ -53,12 +63,24 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     const int n = buffer.getNumSamples();
     if (int(l_.size()) < n) { l_.resize(size_t(n)); r_.resize(size_t(n)); }
 
-    // Settings, once a block.
+    // Settings, once a block. AGE scales every patch's drift (0.5 leaves it as made).
+    auto rd = [](std::atomic<float>* a) { return a->load(std::memory_order_relaxed); };
+    const float age = rd(setup_.age);
     for (int L = 0; L < tp::kLayersExposed; ++L) {
-        const td::LayerParams p = reader_[L].read();
+        td::LayerParams p = reader_[L].read();
+        p.drift = juce::jlimit(0.0f, 1.0f, p.drift * (0.25f + 1.5f * age) + std::max(0.0f, age - 0.75f) * 0.4f);
         engine_.layer(L).setParams(p);
     }
     engine_.setVolume(volumeRaw_->load(std::memory_order_relaxed));
+    engine_.setTune(rd(setup_.tune) / 100.0f);
+    const int transpose = juce::roundToInt(rd(setup_.transpose));
+    const int velCurve = juce::roundToInt(rd(setup_.velocity)), pressCurve = juce::roundToInt(rd(setup_.pressure));
+    const int ch1 = juce::roundToInt(rd(setup_.ch1));
+    const bool pedalInv = rd(setup_.pedal) >= 0.5f;
+    if (pedalInv != lastPedalInv_) {          // turned round: read the pedal where it is now
+        lastPedalInv_ = pedalInv;
+        engine_.sustain((lastPedal_ >= 0.5f) != pedalInv);
+    }
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
             if (auto bpm = pos->getBpm()) engine_.setTempo(float(*bpm));
@@ -71,17 +93,34 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     for (const auto meta : midi) {
         const auto msg = meta.getMessage();
         renderTo(juce::jlimit(0, n, meta.samplePosition));
-        if (msg.isNoteOn()) engine_.noteOn(msg.getNoteNumber(), msg.getFloatVelocity());
-        else if (msg.isNoteOff()) engine_.noteOff(msg.getNoteNumber());
-        else if (msg.isPitchWheel()) engine_.bend(float(msg.getPitchWheelValue() - 8192) / 8192.0f);
-        else if (msg.isChannelPressure()) engine_.aftertouch(float(msg.getChannelPressureValue()) / 127.0f);
-        else if (msg.isAllNotesOff() || msg.isAllSoundOff()) engine_.allNotesOff(msg.isAllSoundOff());
-        else if (msg.isController()) {
+        if (ch1 > 0 && msg.getChannel() > 0 && msg.getChannel() != ch1) continue;     // layer 1 listens on one channel
+        if (msg.isNoteOn()) {
+            const int key = msg.getNoteNumber();
+            const int note = juce::jlimit(0, 127, key + transpose);
+            float v = msg.getFloatVelocity();
+            if (velCurve == 0) v = std::pow(v, 0.6f);
+            else if (velCurve == 2) v = std::pow(v, 1.7f);
+            if (noteMap_[key] >= 0) engine_.noteOff(noteMap_[key]);
+            noteMap_[key] = note;
+            engine_.noteOn(note, v);
+        } else if (msg.isNoteOff()) {
+            const int key = msg.getNoteNumber();
+            engine_.noteOff(noteMap_[key] >= 0 ? noteMap_[key] : juce::jlimit(0, 127, key + transpose));
+            noteMap_[key] = -1;
+        } else if (msg.isPitchWheel()) engine_.bend(float(msg.getPitchWheelValue() - 8192) / 8192.0f);
+        else if (msg.isChannelPressure()) {
+            float v = float(msg.getChannelPressureValue()) / 127.0f;
+            v = pressCurve == 0 ? 0.0f : (pressCurve == 2 ? v * v : v);
+            engine_.aftertouch(v);
+        } else if (msg.isAllNotesOff() || msg.isAllSoundOff()) {
+            engine_.allNotesOff(msg.isAllSoundOff());
+            std::fill(std::begin(noteMap_), std::end(noteMap_), -1);
+        } else if (msg.isController()) {
             const int cc = msg.getControllerNumber();
             const float v = float(msg.getControllerValue()) / 127.0f;
             if (cc == 1) engine_.modWheel(v);
             else if (cc == 11) engine_.expression(v);
-            else if (cc == 64) engine_.sustain(v >= 0.5f);
+            else if (cc == 64) { lastPedal_ = v; engine_.sustain((v >= 0.5f) != pedalInv); }
         }
     }
     renderTo(n);
@@ -96,11 +135,21 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
     odrive_.store(engine_.layer(0).overdriven(), std::memory_order_relaxed);
     sounding_.store(engine_.layer(0).soundingVoices(), std::memory_order_relaxed);
+    for (int L = 0; L < tp::kLayersExposed; ++L) {
+        const auto& layer = engine_.layer(L);
+        const int per = layer.binaural() ? 2 : 1;           // the stereo routing: a voice is two of the panel's
+        vcount_[size_t(L)].store(std::min(kMeterVoices, layer.voiceCount() * per), std::memory_order_relaxed);
+        for (int v = 0; v < kMeterVoices; ++v) meters_[size_t(L)][size_t(v)].store(layer.voiceMeter(v / per), std::memory_order_relaxed);
+    }
+    for (int d = 0; d < td::kNumModDests; ++d) modNow_[size_t(d)].store(engine_.layer(0).modNow(d), std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
-// Presets and compare. The volume is not part of a sound.
-bool TandemProcessor::isSoundParam(int index) const { return all_[size_t(index)] != volume_; }
+// Presets and compare. The volume and the setup drawer are not part of a sound.
+bool TandemProcessor::isSoundParam(int index) const {
+    auto* p = all_[size_t(index)];
+    return p != volume_ && !tp::isSetupId(p->getParameterID());
+}
 
 TandemProcessor::Setting TandemProcessor::currentSetting() const {
     Setting s(all_.size());
@@ -208,13 +257,68 @@ void TandemProcessor::selectAB(int slot) {
     presetName_ = abName_[slot]; presetIndex_ = abIndex_[slot];
 }
 
+// ---------------------------------------------------------------------------
+// Undo and redo
+void TandemProcessor::beginEdit(const juce::String& what) {
+    if (editing_) return;
+    pending_ = snapshot();
+    pendingWhat_ = what;
+    editing_ = true;
+}
+
+void TandemProcessor::endEdit() {
+    if (!editing_) return;
+    editing_ = false;
+    Snapshot now = snapshot();
+    if (now.values == pending_.values && now.index == pending_.index) return;
+    const double t = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    if (!undo_.empty() && redo_.empty() && undo_.back().what == pendingWhat_ && t - undo_.back().when < 1.0) {
+        undo_.back().after = std::move(now);         // the same control again, straight away: one step
+        undo_.back().when = t;
+        return;
+    }
+    undo_.push_back({pendingWhat_, std::move(pending_), std::move(now), t});
+    if (undo_.size() > 200) undo_.erase(undo_.begin());
+    redo_.clear();
+}
+
+void TandemProcessor::restore(const Snapshot& s) {
+    applySetting(s.values);
+    presetSnap_ = s.snap;
+    presetName_ = s.name;
+    presetIndex_ = s.index;
+}
+
+bool TandemProcessor::undo() {
+    editing_ = false;
+    if (undo_.empty()) return false;
+    UndoStep step = std::move(undo_.back());
+    undo_.pop_back();
+    restore(step.before);
+    step.when = 0;
+    redo_.push_back(std::move(step));
+    return true;
+}
+
+bool TandemProcessor::redo() {
+    editing_ = false;
+    if (redo_.empty()) return false;
+    UndoStep step = std::move(redo_.back());
+    redo_.pop_back();
+    restore(step.after);
+    undo_.push_back(std::move(step));
+    return true;
+}
+
 juce::AudioProcessorEditor* TandemProcessor::createEditor() { return new TandemEditor(*this); }
 
 void TandemProcessor::getStateInformation(juce::MemoryBlock& destData) {
     auto state = apvts.copyState();
     state.setProperty("uiScale", uiScale, nullptr);
     state.setProperty("menu", menu, nullptr);
-    for (int i = 0; i < 3; ++i) state.setProperty("page" + juce::String(i), page[i], nullptr);
+    for (int i = 0; i < kMenus; ++i) state.setProperty("page" + juce::String(i), page[i], nullptr);
+    state.setProperty("bank", bank, nullptr);
+    state.setProperty("drawer", drawerOpen, nullptr);
     state.setProperty("presetName", presetName_, nullptr);
     state.setProperty("presetIndex", presetIndex_, nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
@@ -224,9 +328,11 @@ void TandemProcessor::setStateInformation(const void* data, int sizeInBytes) {
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
         auto state = juce::ValueTree::fromXml(*xml);
         if (!state.isValid() || !state.hasType(apvts.state.getType())) return;
-        uiScale = float(state.getProperty("uiScale", 0.8f));
-        menu = juce::jlimit(0, 2, int(state.getProperty("menu", 1)));
-        for (int i = 0; i < 3; ++i) page[i] = int(state.getProperty("page" + juce::String(i), 0));
+        uiScale = float(state.getProperty("uiScale", 1.0f));
+        menu = juce::jlimit(0, kMenus - 1, int(state.getProperty("menu", 2)));
+        for (int i = 0; i < kMenus; ++i) page[i] = int(state.getProperty("page" + juce::String(i), 0));
+        bank = juce::jlimit(0, 7, int(state.getProperty("bank", 0)));
+        drawerOpen = bool(state.getProperty("drawer", false));
         presetName_ = state.getProperty("presetName", "init").toString();
         presetIndex_ = int(state.getProperty("presetIndex", 0));
         apvts.replaceState(state);

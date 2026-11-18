@@ -6,6 +6,7 @@
 #include "Presets.h"
 #include "td_engine.hpp"
 
+#include <array>
 #include <atomic>
 #include <vector>
 
@@ -47,7 +48,7 @@ public:
     juce::AudioProcessorValueTreeState apvts;
 
     // ---- parameters (message thread), by layer key
-    juce::RangedAudioParameter* param(const juce::String& key, int layer = 0) const;
+    juce::RangedAudioParameter* param(const juce::String& key, int layer = 0) const;      // a layer key, "volume" or "setup_..."
     juce::RangedAudioParameter* volume() const { return volume_; }
     float value(const juce::String& key, int layer = 0) const;
     static void set(juce::RangedAudioParameter* p, float value);      // in the parameter's own units, host told
@@ -58,6 +59,7 @@ public:
     void loadPreset(int index);
     void stepPreset(int delta);
     juce::String presetName() const { return presetName_; }
+    int presetIndex() const { return presetIndex_; }
     bool presetEdited() const;
     juce::String saveUserPreset(const juce::String& name);
     bool deleteUserPreset(int index);
@@ -67,11 +69,31 @@ public:
     int abSlot() const { return abSlot_; }
     void selectAB(int slot);
 
+    // ---- undo and redo (message thread): the sound before and after each edit made in the window.
+    // Patch, compare and DICE are edits too. Wheel nudges to the same control within a second merge.
+    void beginEdit(const juce::String& what);
+    void endEdit();
+    bool undo();
+    bool redo();
+    bool canUndo() const { return !undo_.empty(); }
+    bool canRedo() const { return !redo_.empty(); }
+    juce::String undoName() const { return undo_.empty() ? juce::String() : undo_.back().what; }
+    juce::String redoName() const { return redo_.empty() ? juce::String() : redo_.back().what; }
+
     // ---- the window
-    float uiScale = 0.8f;
-    int menu = 1;                            // the display's menu: 0 voice, 1 mod, 2 fx
-    int page[3] = {0, 0, 0};                 // the page in each
+    static constexpr int kMenus = 5;         // the display's menus: perf, voice, mod, arp, fx
+    float uiScale = 1.0f;                    // 100 %: the smallest print is 8 pt
+    int menu = 2;
+    int page[kMenus] = {0, 0, 0, 0, 0};      // the page in each
+    int bank = 0;                            // the patch keys' bank, A-H
+    bool drawerOpen = false;
     bool overdriven() const { return odrive_.load(std::memory_order_relaxed); }
+    // The voices' lamps and the matrix's live output, as of the last block (the audio thread writes them).
+    // One lamp per voice as the VOICES setting counts them: in the stereo routing a note takes two.
+    static constexpr int kMeterVoices = 16;
+    float voiceMeter(int layer, int voice) const { return meters_[size_t(layer & 1)][size_t(juce::jlimit(0, kMeterVoices - 1, voice))].load(std::memory_order_relaxed); }
+    int voiceCount(int layer) const { return vcount_[size_t(layer & 1)].load(std::memory_order_relaxed); }
+    float modNow(int dest) const { return dest > 0 && dest < td::kNumModDests ? modNow_[size_t(dest)].load(std::memory_order_relaxed) : 0.0f; }
     int voicesSounding() const { return sounding_.load(std::memory_order_relaxed); }
     double sampleRate() const { return sampleRate_; }
 
@@ -88,6 +110,10 @@ private:
     tp::LayerReader reader_[td::Engine::kLayers];
     juce::RangedAudioParameter* volume_ = nullptr;
     std::atomic<float>* volumeRaw_ = nullptr;
+    struct Setup { std::atomic<float>* tune = nullptr, *transpose = nullptr, *velocity = nullptr, *pressure = nullptr, *ch1 = nullptr, *ch2 = nullptr, *age = nullptr, *pedal = nullptr; } setup_;
+    int noteMap_[128];                       // the note each key started, so transposing while it is held cannot strand it
+    float lastPedal_ = 0.0f;                 // the sustain pedal as last sent (0..1), and the polarity it was read with
+    bool lastPedalInv_ = false;
     std::vector<juce::RangedAudioParameter*> all_;
     std::vector<juce::String> layerKeys_;
 
@@ -98,11 +124,22 @@ private:
     Setting ab_[2];
     juce::String abName_[2];
     int abIndex_[2] = {0, 0};
+    struct Snapshot { Setting values, snap; juce::String name; int index = 0; };
+    struct UndoStep { juce::String what; Snapshot before, after; double when = 0; };
+    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_}; }
+    void restore(const Snapshot& s);
+    std::vector<UndoStep> undo_, redo_;
+    Snapshot pending_;
+    juce::String pendingWhat_;
+    bool editing_ = false;
 
     double sampleRate_ = 48000;
     std::vector<float> l_, r_;
     std::atomic<bool> odrive_{false};
     std::atomic<int> sounding_{0};
+    std::array<std::array<std::atomic<float>, kMeterVoices>, 2> meters_{};
+    std::array<std::atomic<int>, 2> vcount_{};
+    std::array<std::atomic<float>, td::kNumModDests> modNow_{};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TandemProcessor)
 };

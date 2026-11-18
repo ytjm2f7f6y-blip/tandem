@@ -28,6 +28,14 @@ public:
         reverb_.prepare(host_);
         lfoShared_ = LfoCore{};
         lfoSharedR_ = LfoCore{};
+        {   // NOTE RND: a fixed cycle of values (so a patch plays back the same), and a free stream
+            Rng r(seed_ * 7919u + 17u);
+            for (auto& v : rndTable_) v = r.bi();
+            rndRng_ = Rng(seed_ * 104729u + 3u);
+        }
+        varyPos_ = rndPos_ = 0;
+        idle_ = 1e9;
+        for (auto& m : modNow_) m = 0.0f;
         lfoSharedR_.rng = Rng(seed_ * 3u + 11u);
         heldCount_ = 0;
         clock_ = 1;
@@ -52,11 +60,20 @@ public:
 
     void setTempo(float bpm) { bpm_ = bpm > 0.0f ? bpm : 120.0f; }
     void bend(float v) { bend_ = clampf(v, -1.0f, 1.0f); }
+    void setTune(float semis) { tune_ = clampf(semis, -24.0f, 24.0f); }      // master tune and transpose
     void modWheel(float v) { mw_ = clampf(v, 0.0f, 1.0f); }
     void aftertouch(float v) { at_ = clampf(v, 0.0f, 1.0f); }
     void expression(float v) { expr_ = clampf(v, 0.0f, 1.0f); }
     bool overdriven() const { return odrive_; }
     int soundingVoices() const { int n = 0; for (int i = 0; i < nVoices_; ++i) n += voices_[size_t(i)].active; return n; }
+    // For the window: how many voices there are, each one's loudness over the last block, and the
+    // matrix's output per destination on the newest voice (as of the last block).
+    int voiceCount() const { return nVoices_; }
+    bool binaural() const { return ctx_.binaural; }      // each voice two ears: two of the voices the panel counts
+    float voiceMeter(int i) const { return i >= 0 && i < nVoices_ && voices_[size_t(i)].active ? voices_[size_t(i)].meter : 0.0f; }
+    float modNow(int dest) const { return dest > 0 && dest < kNumModDests ? modNow_[size_t(dest)] : 0.0f; }
+    const Voice& voice(int i) const { return voices_[size_t(std::clamp(i, 0, kMaxVoices - 1))]; }     // for tests
+    int varyStep() const { return varyPos_; }
 
     void sustain(bool on) {
         sustain_ = on;
@@ -71,12 +88,19 @@ public:
     }
 
     void noteOn(int note, float vel) {
+        // After a second with no keys down, VARY's pattern and NOTE RND's cycle start again from the top.
+        if (heldCount_ == 0 && idle_ >= host_) varyPos_ = rndPos_ = 0;
+        idle_ = 0.0f;
+        const NoteVar nv = nextVariation();
+        const float nr = nextNoteRnd();
         pushHeld(note, vel);
-        if (mono()) { monoNote(note, vel, true); return; }
+        const float vv = clampf(vel * nv.vel, 0.02f, 1.0f);
+        const int played = std::clamp(note + nv.semis, 0, 127);
+        if (mono()) { monoNote(note, played, vv, nv, nr, true); return; }
         // Poly 2: a note already sounding takes its own voice again (its release is cut short).
         int vi = -1;
         if (p_.voiceMode == kPoly2) {
-            for (int i = 0; i < nVoices_; ++i) if (voices_[size_t(i)].active && voices_[size_t(i)].note == note) { vi = i; break; }
+            for (int i = 0; i < nVoices_; ++i) if (voices_[size_t(i)].active && voices_[size_t(i)].key == note) { vi = i; break; }
             if (vi < 0) { vi = rr_ % nVoices_; rr_ = (rr_ + 1) % nVoices_; }
         } else {
             vi = pickVoice();
@@ -84,7 +108,8 @@ public:
         Voice& v = voices_[size_t(vi)];
         v.uniSemis = 0.0f;
         v.pan = voicePan(vi);
-        v.trigger(note, vel, true, clock_++, ctx_);
+        prime(v, note, nv, nr);
+        v.trigger(played, vv, true, clock_++, ctx_);
     }
 
     void noteOff(int note) {
@@ -93,13 +118,16 @@ public:
             if (sustain_) { markHeldSustained(note); return; }
             removeHeld(note);
             if (heldCount_ == 0) { for (int i = 0; i < nVoices_; ++i) if (voices_[size_t(i)].gate) voices_[size_t(i)].release(clock_++); }
-            else if (top) monoNote(held_[size_t(heldCount_ - 1)], heldVel_[size_t(heldCount_ - 1)], false);
+            else if (top) {
+                const int k = held_[size_t(heldCount_ - 1)];
+                monoNote(k, k, heldVel_[size_t(heldCount_ - 1)], NoteVar{}, voices_[0].noteRnd, false);
+            }
             return;
         }
         removeHeld(note);
         for (int i = 0; i < nVoices_; ++i) {
             Voice& v = voices_[size_t(i)];
-            if (v.active && v.gate && v.note == note) {
+            if (v.active && v.gate && v.key == note) {
                 if (sustain_) v.sustained = true;
                 else v.release(clock_++);
             }
@@ -147,8 +175,39 @@ private:
         return best < 0 ? 0 : best;
     }
 
+    // VARY: one step of the pattern DICE rolled. Every note moves it on, whether VARY is up or not.
+    struct NoteVar { int semis = 0; float vel = 1.0f, cut = 0.0f, envK = 1.0f; };
+    static float varyHash(uint32_t seed, int step, int k) {
+        uint32_t h = seed * 0x9E3779B1u ^ uint32_t(step + 1) * 0x85EBCA77u ^ uint32_t(k) * 0xC2B2AE3Du;
+        h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+        return float(h >> 8) * (1.0f / 8388608.0f) - 1.0f;            // -1 .. 1
+    }
+    NoteVar nextVariation() {
+        NoteVar v;
+        const int step = varyPos_;
+        varyPos_ = (varyPos_ + 1) % kVaryPattern;
+        const float a = clampf(p_.vary, 0.0f, 1.0f);
+        if (a <= 0.0f) return v;
+        const uint32_t sd = uint32_t(p_.varySeed);
+        v.vel = 1.0f + 0.55f * a * varyHash(sd, step, 1);
+        v.envK = exp2Fast(1.2f * a * varyHash(sd, step, 2));
+        v.cut = 1.6f * a * varyHash(sd, step, 3);
+        if (a > 0.7f) {                                                   // the top of the knob: now and then an octave away
+            const float chance = (a - 0.7f) / 0.3f * 0.35f;
+            if (0.5f + 0.5f * varyHash(sd, step, 4) < chance) v.semis = varyHash(sd, step, 5) > 0.0f ? 12 : -12;
+        }
+        return v;
+    }
+    float nextNoteRnd() {
+        const int n = std::clamp(p_.rndCount, 0, 8);
+        const float r = n == 0 ? rndRng_.bi() : rndTable_[size_t(rndPos_ % n)];
+        ++rndPos_;
+        return r;
+    }
+    static void prime(Voice& v, int key, const NoteVar& nv, float nr) { v.key = key; v.noteRnd = nr; v.varyCut = nv.cut; v.varyEnvK = nv.envK; }
+
     // Solo, Legato and Unison: one note at a time, the last one played wins.
-    void monoNote(int note, float vel, bool fresh) {
+    void monoNote(int key, int note, float vel, const NoteVar& nv, float nr, bool fresh) {
         const bool anyGate = [&] { for (int i = 0; i < nVoices_; ++i) if (voices_[size_t(i)].gate) return true; return false; }();
         const bool retrig = p_.voiceMode == kLegato ? !anyGate : (fresh || !anyGate);
         const int count = p_.voiceMode == kUnison ? nVoices_ : 1;
@@ -156,6 +215,7 @@ private:
             Voice& v = voices_[size_t(i)];
             v.uniSemis = p_.voiceMode == kUnison ? unisonOffset(i, count) : 0.0f;
             v.pan = p_.voiceMode == kUnison && !ctx_.binaural && count > 1 ? (float(i) / float(count - 1) * 2.0f - 1.0f) * std::max(0.6f, p_.panSpread) : voicePan(i);
+            prime(v, key, nv, nr);
             v.trigger(note, vel, retrig, clock_++, ctx_);
         }
     }
@@ -319,6 +379,9 @@ private:
             if (v.finished(p_)) v.active = false;
         }
         odrive_ = ctx_.odrive;
+        if (const Voice* nv = newestVoice()) std::copy(std::begin(nv->modOut), std::end(nv->modOut), modNow_.begin());
+        else modNow_.fill(0.0f);
+        if (heldCount_ == 0) idle_ += float(n);
 
         drive_.process(p_, bl, br, N);
 
@@ -369,7 +432,7 @@ private:
     // Things that change while notes play (tempo for synced times).
     void configureLive() {
         if (ctx_.bpm != bpm_) configure();
-        ctx_.bendSemis = bend_ * p_.bendRange;
+        ctx_.bendSemis = bend_ * p_.bendRange + tune_;
         ctx_.bendVcfOct = bend_ * p_.bendVcf * 4.0f;
         ctx_.modWheel = mw_;
         ctx_.aftertouch = at_;
@@ -397,13 +460,18 @@ private:
     int os_ = 2;
     uint32_t seed_ = 1;
     uint64_t clock_ = 1;
-    float bpm_ = 120.0f, bend_ = 0.0f, mw_ = 0.0f, at_ = 0.0f, expr_ = 0.0f;
+    float bpm_ = 120.0f, bend_ = 0.0f, mw_ = 0.0f, at_ = 0.0f, expr_ = 0.0f, tune_ = 0.0f;
     bool sustain_ = false, odrive_ = false;
     std::array<int, 32> held_{};
     std::array<float, 32> heldVel_{};
     std::array<bool, 32> heldSus_{};
     int heldCount_ = 0;
     LfoCore lfoShared_, lfoSharedR_;
+    std::array<float, 8> rndTable_{};
+    Rng rndRng_;
+    int varyPos_ = 0, rndPos_ = 0;
+    float idle_ = 1e9f;                      // host samples since the last key went up
+    std::array<float, kNumModDests> modNow_{};
     Decimator2 dec_[2];
     Drive drive_;
     Chorus chorus_;

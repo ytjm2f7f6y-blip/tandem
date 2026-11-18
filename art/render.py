@@ -17,10 +17,15 @@ from mathutils import Vector
 from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import layout as L  # noqa: E402
+import importlib  # noqa: E402
+
+import theme as TH  # noqa: E402
+
+L = importlib.import_module(os.environ.get("TD_LAYOUT", "layout"))   # layout (stage 1) or layout_final (the mockups)
+T = TH.THEMES[os.environ.get("TD_THEME", "family")]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BUILD = os.path.join(HERE, "build")
+BUILD = os.path.join(HERE, os.environ.get("TD_BUILD", "build"))
 ASSETS = BUILD
 DRAFT = "--draft" in sys.argv
 PREVIEW = "--preview" in sys.argv
@@ -32,9 +37,13 @@ def _arg(name):
     return None
 
 
+PX = float(_arg("--px")) if _arg("--px") else None          # pixels per point (default: 1 draft, else 2)
+SAMPLES = int(_arg("--samples")) if _arg("--samples") else None
+OUT_NAME = _arg("--out")
 STATE = _arg("--state")        # None: the mockup. "bare": the plugin's background (no knobs, switches or
                                # needles, nothing lit). "amber" / "green": everything lit, for the lit patches.
 FLIP = _arg("--flip")          # a toggle id to render in its other position
+CLOSEUPS = _arg("--closeups")  # "name:x,y,w,h;name:x,y,w,h" in points: close-up crops, as JPEGs
 BORDER = _arg("--border")      # "x,y,w,h" in points: render only this region, to a PNG
 
 Z_FRAME = 3.0
@@ -52,7 +61,7 @@ def reset():
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
-    sc.cycles.samples = 24 if DRAFT else (56 if PREVIEW else 160)
+    sc.cycles.samples = SAMPLES or (24 if DRAFT else (56 if PREVIEW else 160))
     sc.cycles.use_adaptive_sampling = True
     sc.cycles.adaptive_threshold = 0.02 if DRAFT else 0.006
     sc.cycles.max_bounces = 8
@@ -335,6 +344,96 @@ def glass(name, color=(1, 1, 1, 1), rough=0.02):
     return m
 
 
+def powder(name, base, ink_layers, wear=True):
+    """Powder coat: an even satin finish with a fine orange-peel texture, printed ink on top."""
+    m, nt, bsdf = new_mat(name)
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    peel = nt.nodes.new("ShaderNodeTexNoise")
+    peel.inputs["Scale"].default_value = 1.6
+    peel.inputs["Detail"].default_value = 3
+    nt.links.new(geo.outputs["Position"], peel.inputs["Vector"])
+    fine = nt.nodes.new("ShaderNodeTexNoise")
+    fine.inputs["Scale"].default_value = 9.0
+    fine.inputs["Detail"].default_value = 2
+    nt.links.new(geo.outputs["Position"], fine.inputs["Vector"])
+    big = nt.nodes.new("ShaderNodeTexNoise")
+    big.inputs["Scale"].default_value = 0.01
+    big.inputs["Detail"].default_value = 3
+    nt.links.new(geo.outputs["Position"], big.inputs["Vector"])
+    b1 = nt.nodes.new("ShaderNodeBump")
+    b1.inputs["Strength"].default_value = 0.10
+    b1.inputs["Distance"].default_value = 0.25
+    nt.links.new(peel.outputs["Fac"], b1.inputs["Height"])
+    b2 = nt.nodes.new("ShaderNodeBump")
+    b2.inputs["Strength"].default_value = 0.03
+    b2.inputs["Distance"].default_value = 0.1
+    nt.links.new(fine.outputs["Fac"], b2.inputs["Height"])
+    nt.links.new(b1.outputs["Normal"], b2.inputs["Normal"])
+    uv = canvas_uv(nt)
+    col = mix_rgb(nt, math_node(nt, "MULTIPLY", big.outputs["Fac"], 0.4), base, (base[0] * 1.05, base[1] * 1.04, base[2] * 1.02, 1))
+    rough = math_node(nt, "ADD", math_node(nt, "MULTIPLY", peel.outputs["Fac"], 0.10), 0.40)
+    wear_fac = None
+    if wear:
+        wt = tex(nt, img(os.path.join(BUILD, "wear.png")), uv)
+        gt = tex(nt, img(os.path.join(BUILD, "grime.png")), uv)
+        wear_fac = wt.outputs["Color"]
+        col = mix_rgb(nt, math_node(nt, "MULTIPLY", wt.outputs["Color"], 0.22), col, (base[0] * 1.12, base[1] * 1.12, base[2] * 1.1, 1))
+        rough = math_node(nt, "SUBTRACT", rough, math_node(nt, "MULTIPLY", wt.outputs["Color"], 0.15))
+        col = mix_rgb(nt, math_node(nt, "MULTIPLY", gt.outputs["Color"], 0.35), col, (base[0] * 0.55, base[1] * 0.55, base[2] * 0.55, 1))
+    for path, ink, ink_rough in ink_layers:
+        it = tex(nt, img(path), uv)
+        fac = it.outputs["Color"]
+        if wear_fac is not None:
+            fac = math_node(nt, "MULTIPLY", fac, math_node(nt, "SUBTRACT", 1.0, math_node(nt, "MULTIPLY", wear_fac, 0.7)), clamp=True)
+        col = mix_rgb(nt, fac, col, ink)
+        rough = mix_rgb(nt, fac, rough, (ink_rough, ink_rough, ink_rough, 1))
+    nt.links.new(col, bsdf.inputs["Base Color"])
+    nt.links.new(rough, bsdf.inputs["Roughness"])
+    bsdf.inputs["Coat Weight"].default_value = 0.08
+    nt.links.new(b2.outputs["Normal"], bsdf.inputs["Normal"])
+    return m
+
+
+def walnut():
+    """Oiled walnut: dark streaky grain running the length of the cheek."""
+    m, nt, bsdf = new_mat("walnut")
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (0.6, 0.025, 0.6)
+    nt.links.new(geo.outputs["Position"], mp.inputs["Vector"])
+    grain = nt.nodes.new("ShaderNodeTexWave")
+    grain.wave_type = "BANDS"
+    grain.inputs["Scale"].default_value = 2.2
+    grain.inputs["Distortion"].default_value = 7.0
+    grain.inputs["Detail"].default_value = 4.0
+    nt.links.new(mp.outputs["Vector"], grain.inputs["Vector"])
+    pores = nt.nodes.new("ShaderNodeTexNoise")
+    pores.inputs["Scale"].default_value = 3.0
+    pores.inputs["Detail"].default_value = 10
+    nt.links.new(mp.outputs["Vector"], pores.inputs["Vector"])
+    col = mix_rgb(nt, grain.outputs["Fac"], srgb((0.17, 0.09, 0.05)), srgb((0.36, 0.21, 0.11)))
+    col = mix_rgb(nt, math_node(nt, "MULTIPLY", pores.outputs["Fac"], 0.35), col, srgb((0.08, 0.04, 0.02)))
+    nt.links.new(col, bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = 0.42
+    bsdf.inputs["Coat Weight"].default_value = 0.35
+    bsdf.inputs["Coat Roughness"].default_value = 0.2
+    bp = nt.nodes.new("ShaderNodeBump")
+    bp.inputs["Strength"].default_value = 0.08
+    nt.links.new(pores.outputs["Fac"], bp.inputs["Height"])
+    nt.links.new(bp.outputs["Normal"], bsdf.inputs["Normal"])
+    return m
+
+
+def plastic(name, c, rough=0.32, sss=0.08):
+    m = simple(name, srgb(c), rough=rough)
+    bsdf = m.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Coat Weight"].default_value = 0.25
+    bsdf.inputs["Coat Roughness"].default_value = 0.15
+    bsdf.inputs["Subsurface Weight"].default_value = sss
+    bsdf.inputs["Subsurface Radius"].default_value = (1.0, 0.8, 0.6)
+    return m
+
+
 # ---------------------------------------------------------------------------
 # Geometry helpers
 def link(obj):
@@ -465,7 +564,81 @@ def pointer_mat(colour):
     return M[key]
 
 
-def knob(kind, pointer=None):
+def section_of(x):
+    for c in L.CASSETTES:
+        if c["x0"] <= x < c["x1"]:
+            return c["id"]
+    return "ctl"
+
+
+def knob(kind, pointer=None, x=0.0):
+    """Knob pointing at 12 o'clock (canvas up = +Y), in the theme's style."""
+    style = T["knob"]
+    if style == "family":
+        return knob_family(kind, pointer)
+    M = mats()
+    r = L.KNOBS[kind]
+    h = KNOB_H[kind]
+    line_col = L.POINTER_COLOURS[pointer] if pointer else None
+    if style == "ivory":
+        cream = M.setdefault("cream", plastic("cream", (0.90, 0.86, 0.74)))
+        ink = M.setdefault("ink_black", simple("ink_black", (0.02, 0.02, 0.02, 1), rough=0.5))
+        lm = simple("ivline_" + str(pointer), srgb(tuple(0.25 * v for v in line_col)) if line_col else (0.02, 0.02, 0.02, 1), rough=0.5)
+        if kind == "sel":
+            objs = [prism("boss", circle_pts(r * 0.62, 64), 0, 4.0, cream, bevel=0.8)]
+            tip, tail, wid = r * 0.98, r * 0.80, r * 0.56
+            body = sorted_ccw([(-wid / 2, -tail + wid * 0.45), (wid / 2, -tail + wid * 0.45), (wid * 0.32, tip - 4), (wid * 0.12, tip), (-wid * 0.12, tip),
+                               (-wid * 0.32, tip - 4), (-wid * 0.45, -tail + 1), (wid * 0.45, -tail + 1), (0, -tail - 1)])
+            objs.append(prism("bar", body, 3.5, h, cream, bevel=1.6, taper=0.94))
+            objs.append(prism("line", [(-0.8, 2.0), (0.8, 2.0), (0.8, tip - 2.5), (-0.8, tip - 2.5)], h - 0.6, h + 0.12, ink, smooth=False))
+            return objs
+        objs = [prism("skirt", circle_pts(r, 128), 0, 2.8, cream, bevel=0.9, taper=0.97),
+                prism("index_skirt", [(-0.9, r * 0.76), (0.9, r * 0.76), (0.9, r * 0.97), (-0.9, r * 0.97)], 2.5, 2.85, lm, smooth=False)]
+        br = r * 0.72
+        objs.append(prism("body", circle_pts(br, 240, flutes=18, depth=r * 0.05), 2.6, h, cream, bevel=1.6, taper=0.94))
+        objs.append(prism("dome", circle_pts(br * 0.84, 96), h - 0.4, h + 0.6, cream, bevel=0.7))
+        objs.append(prism("index_top", [(-0.75, br * 0.15), (0.75, br * 0.15), (0.75, br * 0.80), (-0.75, br * 0.80)], h + 0.35, h + 0.7, lm, smooth=False))
+        return objs
+    if style == "machined":
+        anod = M.setdefault("anod", simple("anod", (0.018, 0.018, 0.022, 1), metal=0.7, rough=0.33))
+        white = M["white"]
+        lm = pointer_mat(pointer)
+        if kind == "sel":
+            objs = [prism("boss", circle_pts(r * 0.62, 64), 0, 4.0, anod, bevel=0.8)]
+            tip, wid = r * 0.98, r * 0.5
+            body = [(-wid / 2, -r * 0.7), (wid / 2, -r * 0.7), (wid * 0.4, tip - 3), (wid * 0.15, tip), (-wid * 0.15, tip), (-wid * 0.4, tip - 3)]
+            objs.append(prism("bar", sorted_ccw(body), 3.5, h, M["alu"], bevel=1.2, taper=0.95))
+            objs.append(prism("line", [(-0.8, 2.0), (0.8, 2.0), (0.8, tip - 2.5), (-0.8, tip - 2.5)], h - 0.5, h + 0.12, anod, smooth=False))
+            return objs
+        objs = [prism("base", circle_pts(r, 128), 0, 1.6, anod, bevel=0.4),
+                prism("index_base", [(-0.85, r * 0.84), (0.85, r * 0.84), (0.85, r * 0.98), (-0.85, r * 0.98)], 1.4, 1.65, white, smooth=False)]
+        kr = r * 0.82
+        objs.append(prism("knurl", circle_pts(kr, 288, flutes=72, depth=0.45), 1.4, h - 0.8, M["alu"], bevel=0.5, taper=0.97))
+        objs.append(prism("top", circle_pts(kr * 0.86, 96), h - 1.2, h + 0.15, anod, bevel=0.35))
+        objs.append(prism("index_top", [(-0.7, kr * 0.15), (0.7, kr * 0.15), (0.7, kr * 0.80), (-0.7, kr * 0.80)], h + 0.05, h + 0.3, lm, smooth=False))
+        return objs
+    # capped: black knob, a coloured cap for its section
+    blk = M.setdefault("softblack", simple("softblack", (0.025, 0.025, 0.028, 1), rough=0.55))
+    capc = T["caps"][section_of(x)]
+    capm = M.setdefault("cap_" + section_of(x), plastic("cap_" + section_of(x), capc, rough=0.25, sss=0.05))
+    dark = M.setdefault("ink_black", simple("ink_black", (0.02, 0.02, 0.02, 1), rough=0.5))
+    if kind == "sel":
+        objs = [prism("boss", circle_pts(r * 0.62, 64), 0, 4.0, blk, bevel=0.8)]
+        tip, wid = r * 0.98, r * 0.52
+        body = [(-wid / 2, -r * 0.72), (wid / 2, -r * 0.72), (wid * 0.36, tip - 3), (wid * 0.14, tip), (-wid * 0.14, tip), (-wid * 0.36, tip - 3)]
+        objs.append(prism("bar", sorted_ccw(body), 3.5, h, blk, bevel=1.4, taper=0.94))
+        objs.append(prism("line", [(-1.0, 1.0), (1.0, 1.0), (1.0, tip - 2.5), (-1.0, tip - 2.5)], h - 0.6, h + 0.15, capm, smooth=False))
+        return objs
+    objs = [prism("skirt", circle_pts(r, 128), 0, 3.0, blk, bevel=0.9, taper=0.97),
+            prism("index_skirt", [(-0.9, r * 0.77), (0.9, r * 0.77), (0.9, r * 0.97), (-0.9, r * 0.97)], 2.7, 3.05, M["white"], smooth=False)]
+    br = r * 0.74
+    objs.append(prism("body", circle_pts(br, 240, flutes=24, depth=r * 0.05), 3.0, h, blk, bevel=1.5, taper=0.95))
+    objs.append(prism("cap", circle_pts(br * 0.86, 96), h - 0.6, h + 0.9, capm, bevel=0.8))
+    objs.append(prism("index_top", [(-0.7, br * 0.12), (0.7, br * 0.12), (0.7, br * 0.80), (-0.7, br * 0.80)], h + 0.55, h + 0.95, dark, smooth=False))
+    return objs
+
+
+def knob_family(kind, pointer=None):
     """Knob pointing at 12 o'clock (canvas up = +Y)."""
     M = mats()
     PM = pointer_mat(pointer)
@@ -534,6 +707,36 @@ def toggle(pos):
     return objs
 
 
+def push_key(w, h, lit, led=True):
+    """A square-shouldered push key in a dark well, an LED lens above it."""
+    M = mats()
+    fin = T["key_finish"]
+    capm = M.setdefault("keycap", plastic("keycap", T["key"], rough=0.62 if fin == "rubber" else 0.34, sss=0.0 if fin == "rubber" else 0.06))
+    objs = [prism("key_well", rounded_rect_pts(w + 3.4, h + 3.4, 2.6), -0.2, 0.4, M["black_plastic"], bevel=0.3),
+            prism("key_cap", rounded_rect_pts(w, h, 2.2), 0.3, 6.2, capm, bevel=1.2, taper=0.92)]
+    if led:
+        c = {"red": (1.0, 0.004, 0.0), "amber": (1.0, 0.20, 0.0)}[T["led"]]
+        m, nt, bsdf = new_mat(f"led_{T['led']}_{lit}")
+        bsdf.inputs["Base Color"].default_value = (*c, 1) if lit else (c[0] * 0.10, c[1] * 0.06, c[2] * 0.06, 1)
+        bsdf.inputs["Roughness"].default_value = 0.08
+        bsdf.inputs["Transmission Weight"].default_value = 0.3
+        if lit:
+            bsdf.inputs["Emission Color"].default_value = (*c, 1)
+            bsdf.inputs["Emission Strength"].default_value = 1.1
+        ly = h / 2 + 5.8
+        objs.append(prism("led_ring", circle_pts(2.6, 32), 0, 0.8, M["black_plastic"], bevel=0.2))
+        objs[-1].location.y = ly
+        bm = bmesh.new()
+        bmesh.ops.create_uvsphere(bm, u_segments=24, v_segments=12, radius=1.8)
+        lens = mesh_obj("led", bm, m)
+        lens.scale = (1, 1, 0.7)
+        lens.location = (0, ly, 0.7)
+        for p in lens.data.polygons:
+            p.use_smooth = True
+        objs.append(lens)
+    return objs
+
+
 def fader_plate(travel):
     """The fader's cover: a nickel plate with a slot down it, the slot dark inside."""
     M = mats()
@@ -549,18 +752,23 @@ def fader_cap():
     """A broadcast-desk fader knob: a black block with a dished top, grip ridges and a white line."""
     M = mats()
     cw, ch = L.FADER_CAP
+    style = T["fader"]
+    body = {"ivory": lambda: M.setdefault("cream", plastic("cream", (0.90, 0.86, 0.74))),
+            "white": lambda: M.setdefault("fwhite", plastic("fwhite", (0.94, 0.93, 0.90))),
+            "machined": lambda: M.setdefault("anod", simple("anod", (0.018, 0.018, 0.022, 1), metal=0.7, rough=0.33))}.get(style, lambda: M["phen"])()
+    line = M["white"] if style in ("phenolic", "machined") else M.setdefault("ink_black", simple("ink_black", (0.02, 0.02, 0.02, 1), rough=0.5))
     objs = [prism("cap_stem", rounded_rect_pts(4.0, 8.0, 1.0), 0, 4.0, M["nickel"], bevel=0.3)]
-    objs.append(prism("cap_body", rounded_rect_pts(cw, ch, 3.0), 3.5, 11.0, M["phen"], bevel=1.4, taper=0.92))
+    objs.append(prism("cap_body", rounded_rect_pts(cw, ch, 3.0), 3.5, 11.0, body, bevel=1.4, taper=0.92))
     for k in (-1, 1):       # ridges across the top, front and back, for the finger
         for j in range(3):
             y = k * (ch / 2 - 3.2 - j * 1.8)
             objs.append(prism("ridge", [(-cw * 0.36, y - 0.35), (cw * 0.36, y - 0.35), (cw * 0.36, y + 0.35), (-cw * 0.36, y + 0.35)],
-                              10.6, 11.25, M["phen"], bevel=0.15, smooth=False))
-    objs.append(prism("cap_line", [(-cw * 0.42, -0.55), (cw * 0.42, -0.55), (cw * 0.42, 0.55), (-cw * 0.42, 0.55)], 10.7, 11.12, M["white"], smooth=False))
+                              10.6, 11.25, body, bevel=0.15, smooth=False))
+    objs.append(prism("cap_line", [(-cw * 0.42, -0.55), (cw * 0.42, -0.55), (cw * 0.42, 0.55), (-cw * 0.42, 0.55)], 10.7, 11.12, line, smooth=False))
     return objs
 
 
-def display_box(w, h, name):
+def display_box(w, h, name, show=None):
     """A readout: a phenolic bezel, a nickel mask, and dark green-black glass the plugin writes behind."""
     M = mats()
     objs = []
@@ -584,7 +792,14 @@ def display_box(w, h, name):
     bsdf.inputs["Roughness"].default_value = 0.05
     bsdf.inputs["Coat Weight"].default_value = 0.7
     bsdf.inputs["Coat Roughness"].default_value = 0.02
+    if show and os.path.exists(os.path.join(BUILD, show)):
+        uvn = nt.nodes.new("ShaderNodeTexCoord")
+        st = tex(nt, img(os.path.join(BUILD, show)), uvn.outputs["UV"], "Linear")
+        tint = srgb(T["display"])
+        nt.links.new(mix_rgb(nt, st.outputs["Color"], (0, 0, 0, 1), tint), bsdf.inputs["Emission Color"])
+        bsdf.inputs["Emission Strength"].default_value = 2.2
     face = prism(name + "_glass", rounded_rect_pts(fw + 1.0, fh + 1.0, 4.0), 0.0, 1.0, m, bevel=0.3)
+    uv_plane_box(face, fw + 1.0, fh + 1.0)
     objs.append(face)
     return objs
 
@@ -880,22 +1095,36 @@ def build_panel(regions=None):
     """The whole faceplate as the mockup shows it: every knob, switch and lamp in place."""
     sc = reset()
     lights()
-    camera(L.W / 2, L.H / 2, L.W, L.H, 1 if DRAFT else L.SCALE)
+    camera(L.W / 2, L.H / 2, L.W, L.H, PX or (1 if DRAFT else L.SCALE))
     box("floor", -50, -50, L.W + 50, L.H + 50, -4, -2, simple("floor", (0.004, 0.004, 0.004, 1), rough=0.9), bevel=0)
 
-    rail = hammertone("rail", srgb((0.30, 0.315, 0.33)), 0.35,
-                      [(os.path.join(BUILD, "brand_ink.png"), srgb((0.86, 0.82, 0.70)), 0.5),
-                       (os.path.join(BUILD, "rail_ink.png"), srgb((0.86, 0.83, 0.74)), 0.5),
-                       (os.path.join(BUILD, "coffee.png"), srgb((0.42, 0.29, 0.16)), 0.3)], wear=False)
+    rail_inks = [(os.path.join(BUILD, "brand_ink.png"), srgb(T["rail_ink"]), 0.5),
+                 (os.path.join(BUILD, "rail_ink.png"), srgb(T["rail_ink"]), 0.5),
+                 (os.path.join(BUILD, "coffee.png"), srgb((0.42, 0.29, 0.16)), 0.3)]
+    if T["rail_finish"] == "powder":
+        rail_inks = rail_inks[:2]         # a fresh finish: no coffee ring
+        rail = powder("rail", srgb(T["rail"]), rail_inks, wear=False)
+    else:
+        rail = hammertone("rail", srgb(T["rail"]), 0.35, rail_inks, wear=False)
     ct, cb = L.CASS_Y
-    box("rail_top", 0, 0, L.W, ct, 0, Z_FRAME, rail, bevel=1.2)
-    box("rail_bot", 0, cb, L.W, L.H, 0, Z_FRAME, rail, bevel=1.2)
-    box("side_l", 0, ct - 1, 24, cb + 1, 0, Z_FRAME - 0.4, rail, bevel=0.8)
-    box("side_r", L.W - 24, ct - 1, L.W, cb + 1, 0, Z_FRAME - 0.4, rail, bevel=0.8)
+    wood = T.get("cheeks") == "walnut"
+    xr0, xr1 = (24, L.W - 24) if wood else (0, L.W)
+    box("rail_top", xr0, 0, xr1, ct, 0, Z_FRAME, rail, bevel=1.2)
+    box("rail_bot", xr0, cb, xr1, L.H, 0, Z_FRAME, rail, bevel=1.2)
+    if wood:        # walnut end cheeks, standing a little proud of the panel
+        wm = walnut()
+        box("cheek_l", 0, 0, 24, L.H, 0, Z_FRAME + 4.0, wm, bevel=2.2)
+        box("cheek_r", L.W - 24, 0, L.W, L.H, 0, Z_FRAME + 4.0, wm, bevel=2.2)
+    else:
+        box("side_l", 0, ct - 1, 24, cb + 1, 0, Z_FRAME - 0.4, rail, bevel=0.8)
+        box("side_r", L.W - 24, ct - 1, L.W, cb + 1, 0, Z_FRAME - 0.4, rail, bevel=0.8)
 
-    cass = hammertone("cassette", srgb((0.72, 0.705, 0.655)), 0.22,
-                      [(os.path.join(BUILD, "legend_ink.png"), srgb((0.045, 0.042, 0.038)), 0.32),
-                       (os.path.join(BUILD, "grease_ink.png"), srgb((0.66, 0.11, 0.07)), 0.55)])
+    inks = [(os.path.join(BUILD, "legend_ink.png"), srgb(T["ink"]), 0.32),
+            (os.path.join(BUILD, "grease_ink.png"), srgb((0.66, 0.11, 0.07)), 0.55)]
+    if T["panel_finish"] == "powder":
+        cass = powder("cassette", srgb(T["panel"]), inks)
+    else:
+        cass = hammertone("cassette", srgb(T["panel"]), 0.22, inks)
     for c in L.CASSETTES:
         box("cass_" + c["id"], c["x0"] + 1.0, ct + 1.0, c["x1"] - 1.0, cb - 1.0, 0, Z_CASS, cass, bevel=1.4)
 
@@ -903,15 +1132,17 @@ def build_panel(regions=None):
     serial_plate()
 
     for i, (x, y) in enumerate(L.SCREWS):
+        if wood and (x < 24 or x > L.W - 24):
+            continue
         z = Z_FRAME if (y < ct or y > cb or x < 24 or x > L.W - 24) else Z_CASS
         place(screw((i * 47) % 180), x, y, z)
     for i, (x, y) in enumerate(L.DISPLAY_SCREWS):
         place(screw((i * 61 + 20) % 180), x, y, Z_CASS + 4.6)
 
     D = L.DISPLAY
-    place(display_box(D["w"], D["h"], "disp"), D["x"], D["y"], Z_CASS)
-    T = L.TYPE_WIN
-    place(display_box(T["w"], T["h"], "ftype"), T["x"], T["y"], Z_CASS)
+    place(display_box(D["w"], D["h"], "disp", show=None if STATE else "display_show.png"), D["x"], D["y"], Z_CASS)
+    TW = L.TYPE_WIN
+    place(display_box(TW["w"], TW["h"], "ftype", show=None if STATE else "type_show.png"), TW["x"], TW["y"], Z_CASS)
 
     for ctl in L.CONTROLS:
         t = ctl["type"]
@@ -925,7 +1156,10 @@ def build_panel(regions=None):
             continue
         if t == "knob":
             ang = L.set_angle(ctl) if not ctl.get("encoder") else 360.0 * ctl["set"]
-            place(knob(ctl["kind"], L.POINTERS.get(ctl["id"])), ctl["x"], ctl["y"], Z_CASS, rot_deg=ang)
+            place(knob(ctl["kind"], L.POINTERS.get(ctl["id"]), ctl["x"]), ctl["x"], ctl["y"], Z_CASS, rot_deg=ang)
+        elif t == "key":
+            lit = bool(ctl.get("set")) if not STATE else STATE != "bare"
+            place(push_key(ctl["w"], ctl["h"], lit, ctl.get("led", True)), ctl["x"], ctl["y"], Z_CASS)
         elif t == "button":
             small = ctl.get("small", False)
             z = Z_FRAME if ctl["y"] > L.CASS_Y[1] else Z_CASS
@@ -950,6 +1184,20 @@ def build_panel(regions=None):
         ink = "tape_blank_ink.png"
     tape(L.PRESET_TAPE, "tape_preset_alpha.png", "tape_preset_crepe.png", ink, lift=0.6)
 
+    if CLOSEUPS:
+        sc.render.use_border = True
+        sc.render.use_crop_to_border = True
+        sc.render.image_settings.file_format = "JPEG"
+        sc.render.image_settings.quality = 93
+        for item in CLOSEUPS.split(";"):
+            nm, rect = item.split(":")
+            x, y, w, h = [float(v) for v in rect.split(",")]
+            sc.render.border_min_x, sc.render.border_max_x = x / L.W, (x + w) / L.W
+            sc.render.border_min_y, sc.render.border_max_y = 1.0 - (y + h) / L.H, 1.0 - y / L.H
+            sc.render.filepath = os.path.join(BUILD, f"{OUT_NAME or 'close'}_{nm}.jpg")
+            bpy.ops.render.render(write_still=True)
+            print("wrote", sc.render.filepath)
+        return
     if BORDER:
         # Only a small region (for a switch's other position), cropped, as a PNG.
         x, y, w, h = [float(v) for v in BORDER.split(",")]
@@ -982,7 +1230,7 @@ def build_panel(regions=None):
         return
     sc.render.image_settings.file_format = "JPEG"
     sc.render.image_settings.quality = 92
-    name = "panel_draft.jpg" if DRAFT else ("panel_preview.jpg" if PREVIEW else "panel.jpg")
+    name = OUT_NAME or ("panel_draft.jpg" if DRAFT else ("panel_preview.jpg" if PREVIEW else "panel.jpg"))
     if STATE == "bare":
         name = "bare_" + name
     sc.render.filepath = os.path.join(BUILD, name)
