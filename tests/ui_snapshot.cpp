@@ -1,5 +1,5 @@
 // Renders the window to PNG files after playing through the plugin, for checking it
-// without a host:  ui_snapshot [folder]
+// without a host:  ui_snapshot [folder] [scale]
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
@@ -25,6 +25,8 @@ struct Shot {
     const char* assignTo = nullptr;       // a control, as if ASSIGN and that knob turned
 };
 
+float gMult = 1.0f;                       // ui_snapshot <folder> <scale>: every shot that much larger
+
 void shot(const juce::String& dir, const Shot& s) {
     TandemProcessor proc;
     proc.setRateAndBufferSizeDetails(48000, 1600);
@@ -33,7 +35,7 @@ void shot(const juce::String& dir, const Shot& s) {
     proc.drawerOpen = s.drawer;
     std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
     auto* te = dynamic_cast<TandemEditor*>(ed.get());
-    te->setScale(s.scale);
+    te->setScale(s.scale * gMult);
     te->showMenu(s.menu, s.page);
     playChord(proc);
     if (s.touched) te->touch(s.touched);
@@ -54,6 +56,7 @@ void shot(const juce::String& dir, const Shot& s) {
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI gui;
     const juce::String dir = argc > 1 ? argv[1] : ".";
+    if (argc > 2) gMult = juce::jlimit(0.5f, 1.5f, juce::String(argv[2]).getFloatValue());
     shot(dir, {"ui_init.png", 0, 2, 0});
     shot(dir, {"ui_vowel_pad_filter_page.png", 5, 1, 0, nullptr, "f_cutoff"});
     shot(dir, {"ui_sync_lead_touched.png", 2, 4, 0, "pitch_mod"});
