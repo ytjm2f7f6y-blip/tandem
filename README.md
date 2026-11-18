@@ -70,11 +70,8 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
   Both run on one clock: with HOST lit, Logic's tempo, and its beat while it plays, so
   arpeggios land on the bar; otherwise TEMPO, or TAP (tapping takes the clock from
   Logic). TAP's lamp flashes on the beat; ON's beats while its arpeggio plays.
-- **The side chain (EXT IN)** is switched off in Tandem itself: giving it an input bus
-  left it silent in Logic. Layer 1's EXT IN knob is greyed out while it does nothing.
-  **Tandem SC**, installed beside it, is the same synth with the input on from the start
-  (a different way of declaring it): a test, so try it in Logic and see whether it plays.
-  With a side chain, layer 1's EXT IN knob feeds it into its filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
+- **The side chain (EXT IN):** pick a track in the side chain menu at the top of
+  Tandem's window in Logic. Layer 1's EXT IN knob feeds it into its filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
   matrix source on both layers, and with the VCA on GATE it opens and closes the VCA.
   Layer 2's EXT IN knob is CASCADE's level, and works.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
@@ -123,7 +120,7 @@ points, so it fits a 14-inch MacBook's screen beside Logic's own window frame.
 | 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
 | 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | done |
 | 3 | A new layout sized for a 14-inch MacBook (bigger print and display, patch windows for each layer, UNDO and REDO keys, the setup drawer over the panel), more detailed faders, a patch on each layer, your own single-cycle waves (eight, kept with the session and with saved sounds), a matrix overview you can edit directly | done |
-| 4 | A layout pass checked by a script (every label clear of the box edges, captions in a row on one line), a 25% bigger display, bigger layer windows with a sound browser (kinds, search, favourites), a clear mark of the edited layer, the arpeggiator's settings in a window, filter types spelled out, EXT IN greyed when it does nothing, 25-30% less CPU per voice (the sound unchanged, bit for bit), 16 more two-layer sounds (80 in all), and Tandem SC to test the side chain | **this build** |
+| 4 | A layout pass checked by a script (every label clear of the box edges, captions in a row on one line), a 25% bigger display, bigger layer windows with a sound browser (kinds, search, favourites), a clear mark of the edited layer, the arpeggiator's settings in a window, filter types spelled out, EXT IN greyed when it does nothing, 25-30% less CPU per voice (the sound unchanged, bit for bit), 16 more two-layer sounds (80 in all); then (0.4.1) the side chain in Tandem itself, and menus and dialogs that take one click in Logic | **this build** |
 
 ## Installing
 
@@ -133,7 +130,7 @@ image, quit Logic, and in Terminal run:
     bash "$(ls -td /Volumes/tandem*/ | head -1)install.sh"
 
 Then, on a Software Instrument track: AU Instruments > Rumpus Room Records > Tandem.
-(Tandem SC, the side chain test, is beside it.)
+(The installer removes Tandem SC, the side chain test, if it is there: Tandem has it now.)
 
 ## The sound engine
 

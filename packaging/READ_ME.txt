@@ -42,13 +42,11 @@ has its own); the window under them shows mode, range and division (click
 a part to step it); swing and gate on the ARP pages. HOST follows
 Logic's tempo and beat; turn TEMPO or TAP for Tandem's own clock.
 
-The side chain input is switched off in Tandem, so layer 1's EXT IN knob
-is greyed out. Layer 2's EXT IN knob sets CASCADE's level.
-
-TANDEM SC is installed beside Tandem: the same synth with the side chain
-input switched on, as a test. In Logic, put Tandem SC on a track and play:
-does it make a sound? Then pick a track in its side chain menu (top of the
-plugin window) and turn layer 1's EXT IN up. Tell Claude what happens.
+SIDE CHAIN: pick a track in the side chain menu at the top of Tandem's
+window in Logic, then turn layer 1's EXT IN up: it goes into layer 1's
+filter. SHIFT + EXT IN sets the envelope follower. Layer 2's EXT IN knob
+sets CASCADE's level. (The installer removes Tandem SC, the side chain
+test: Tandem has the side chain now.)
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
 default; a tag beside them shows the value as you turn. UNDO and REDO

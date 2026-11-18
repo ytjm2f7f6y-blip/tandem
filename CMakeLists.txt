@@ -1,17 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Tandem VERSION 0.4.0 LANGUAGES C CXX)
+project(Tandem VERSION 0.4.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(TD_BUILD_PLUGIN "Build the plugin (downloads JUCE)" ON)
 option(TD_BUILD_TESTS "Build the engine and plugin tests" ON)
-# The side chain input (EXT IN). Off: in Logic, giving the instrument an input bus left it silent.
-option(TD_SIDECHAIN "Give the plugin a side chain input bus (EXT IN)" OFF)
-# A second Audio Unit beside it, "Tandem SC", with the side chain input on from the start (a test:
-# its own code, so it installs next to Tandem and can't break it).
-option(TD_SC_VARIANT "Also build Tandem SC, the side chain test" ON)
+# The side chain input (EXT IN), on from the start. (Declared off until the host turned it on, it
+# left Tandem silent in Logic; on from the start, as the Tandem SC test showed, Logic plays it.)
+option(TD_SIDECHAIN "Give the plugin a side chain input bus (EXT IN)" ON)
 
 # The engine: header-only, no dependencies.
 add_library(td_engine INTERFACE)
@@ -75,31 +73,6 @@ if(TD_BUILD_PLUGIN)
     set(TD_DEFINES JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
     if(TD_SIDECHAIN)
         list(APPEND TD_DEFINES TD_SIDECHAIN=1)
-    endif()
-
-    if(APPLE AND TD_SC_VARIANT)
-        juce_add_plugin(TandemSC
-            PRODUCT_NAME "Tandem SC"
-            PLUGIN_NAME "Tandem SC"
-            DESCRIPTION "Tandem with its side chain input (a test)"
-            COMPANY_NAME "Rumpus Room Records"
-            BUNDLE_ID com.rumpusroomrecords.tandemsc
-            PLUGIN_MANUFACTURER_CODE SamP
-            PLUGIN_CODE TnSC
-            FORMATS AU
-            IS_SYNTH TRUE
-            NEEDS_MIDI_INPUT TRUE
-            NEEDS_MIDI_OUTPUT FALSE
-            IS_MIDI_EFFECT FALSE
-            EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-            COPY_PLUGIN_AFTER_BUILD FALSE
-            AU_MAIN_TYPE kAudioUnitType_MusicDevice)
-        target_sources(TandemSC PRIVATE ${TD_PLUGIN_SOURCES})
-        target_include_directories(TandemSC PRIVATE plugin)
-        target_compile_definitions(TandemSC PUBLIC ${TD_DEFINES} TD_SIDECHAIN=1 TD_SIDECHAIN_ON=1)
-        target_link_libraries(TandemSC
-            PRIVATE td_engine TandemData juce::juce_audio_utils
-            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags)
     endif()
 
     target_sources(Tandem PRIVATE ${TD_PLUGIN_SOURCES})

@@ -22,7 +22,7 @@ HELP = {
     # ---- mixer
     "x_osc1": ("OSC 1 level", "How much of oscillator 1 goes into the filter. Past about 6 it drives the filter's input (the O.DRIVE lamp lights)."),
     "x_osc2": ("OSC 2 level", "How much of oscillator 2 goes into the filter."),
-    "x_ext": ("EXT IN level", "On layer 2: how much of layer 1 goes into layer 2's filter in the CASCADE play mode. On layer 1: the side chain, into the filter (switched off in Tandem, so the knob is greyed; on in Tandem SC). SHIFT: the side chain's envelope follower."),
+    "x_ext": ("EXT IN level", "On layer 2: how much of layer 1 goes into layer 2's filter in the CASCADE play mode. On layer 1: the side chain, into the filter (choose its track in the side chain menu at the top of the plugin window in Logic). SHIFT: the side chain's envelope follower."),
     "odrive": ("Overdrive", "Lights when the mixer drives the filter's input into saturation."),
     # ---- filter
     "f_cutoff": ("Cutoff", "Where the filter starts to cut, 16 Hz to 20 kHz." + SHIFT),

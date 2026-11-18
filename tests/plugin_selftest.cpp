@@ -661,6 +661,19 @@ int main() {
             CHECK(found, "a starred sound is in Favourites");
             CHECK(b->keyPressed(juce::KeyPress(juce::KeyPress::downKey)), "the arrow keys move through the list");
         }
+        if (auto* br = te->browser()) {                           // a single click on a sound, as the mouse does it
+            br->setSearch("");
+            br->setKind(SoundBrowser::kinds().indexOf("Lead"));
+            const auto want = br->rowName(2);
+            auto src = juce::Desktop::getInstance().getMainMouseSource();
+            const auto t0 = juce::Time::getCurrentTime();
+            const float sc = float(br->getWidth()) / SoundBrowser::kW;
+            const juce::Point<float> at((112.0f + 8.0f + 10.0f + 60.0f) * sc, (30.0f + 6.0f + 21.0f * 2.5f) * sc);    // row 3 of the list
+            const juce::MouseEvent ev(src, at, {}, juce::MouseInputSource::defaultPressure, 0.0f, 0.0f, 0.0f, 0.0f, br, br, t0, at, t0, 1, false);
+            br->mouseDown(ev);
+            br->mouseUp(ev);
+            CHECK(want.isNotEmpty() && p.layerName(1) == want, ("one click on a sound in the browser puts it on the layer (" + want + ")").toRawUTF8());
+        }
         te->closeBrowser();
         CHECK(te->browser() == nullptr, "and it closes");
         if (hadFav) SoundBrowser::favouritesFile().replaceWithText(favBefore); else SoundBrowser::favouritesFile().deleteFile();

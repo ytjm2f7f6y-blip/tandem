@@ -908,7 +908,7 @@ void TandemEditor::showControlMenu(int ci) {
             });
         m.addSubMenu("Set to", set);
     }
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::modulateFrom(const char* controlId, int source) {
@@ -956,7 +956,7 @@ void TandemEditor::showPageMenu() {
         }
         m.addItem(t, true, i == proc_.page[proc_.menu], [this, i] { showMenu(proc_.menu, i); });
     }
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::showPresetMenu() {
@@ -986,7 +986,7 @@ void TandemEditor::showPresetMenu() {
     for (int i = 0; i < int(list.size()); ++i)
         if (!list[size_t(i)].factory) del.addItem(list[size_t(i)].name, [this, i] { proc_.deleteUserPreset(i); repaint(); });
     if (del.getNumItems() > 0) m.addSubMenu("Delete one of yours", del);
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::showTypeMenu() {
@@ -999,7 +999,7 @@ void TandemEditor::showTypeMenu() {
         m.addItem(ch->choices[i], true, i == ch->getIndex(), [this, p, i] {
             p->beginChangeGesture(); TandemProcessor::set(p, float(i)); p->endChangeGesture(); touch(typeKey()); repaint();
         });
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::showSizeMenu() {
@@ -1009,7 +1009,7 @@ void TandemEditor::showSizeMenu() {
         m.addItem(juce::String(juce::roundToInt(s * 100)) + " %", true, std::abs(s_ - s) < 0.01f, [this, s] { setScale(s); });
     m.addSeparator();
     m.addItem("Tandem " JucePlugin_VersionString " (stage 4)", false, false, [] {});
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::askPresetName(int what) {
@@ -1018,21 +1018,18 @@ void TandemEditor::askPresetName(int what) {
     const juce::String hint = layer ? "Name this patch (it can go on either layer):" : "Name these two layers and how they play together:";
     juce::String start = layer ? proc_.layerName(what) : proc_.presetName();
     start = start.upToFirstOccurrenceOf(" (", false, false);
-    saveDialog_ = std::make_unique<juce::AlertWindow>(title, hint, juce::MessageBoxIconType::NoIcon, this);
-    saveDialog_->addTextEditor("name", start);
-    saveDialog_->addButton("Write", 1, juce::KeyPress(juce::KeyPress::returnKey));
-    saveDialog_->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    auto w = std::make_unique<juce::AlertWindow>(title, hint, juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor("name", start);
+    w->addButton("Write", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
     juce::Component::SafePointer<TandemEditor> safe(this);
-    saveDialog_->enterModalState(true, juce::ModalCallbackFunction::create([safe, what, layer](int result) {
-        if (safe == nullptr || safe->saveDialog_ == nullptr) return;
-        const auto name = safe->saveDialog_->getTextEditorContents("name");
-        if (result == 1) {
-            const auto err = layer ? safe->proc_.saveLayerPatch(name, what) : safe->proc_.saveUserPreset(name);
-            if (err.isNotEmpty()) juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Couldn't write it", err);
-            else safe->notice(layer ? "WRITTEN: " + name.toUpperCase() + ", A PATCH" : "WRITTEN: " + name.toUpperCase());
-        }
-        juce::MessageManager::callAsync([safe] { if (safe != nullptr) { safe->saveDialog_.reset(); safe->repaint(); } });
-    }), false);
+    showDialog(std::move(w), [safe, what, layer](int result) {
+        if (safe == nullptr || safe->dialog_ == nullptr || result != 1) return;
+        const auto name = safe->dialog_->getTextEditorContents("name");
+        const auto err = layer ? safe->proc_.saveLayerPatch(name, what) : safe->proc_.saveUserPreset(name);
+        if (err.isNotEmpty()) juce::MessageManager::callAsync([safe, err] { if (safe != nullptr) safe->showAlert("Couldn't write it", err); });
+        else safe->notice(layer ? "WRITTEN: " + name.toUpperCase() + ", A PATCH" : "WRITTEN: " + name.toUpperCase());
+    });
 }
 
 // WRITE: one layer as a patch, or both as a performance.
@@ -1043,7 +1040,36 @@ void TandemEditor::showWriteMenu() {
         m.addItem("Layer " + juce::String(L + 1) + " as a patch  (" + proc_.layerName(L).upToFirstOccurrenceOf(" (", false, false) + ")...",
                   [this, L] { askPresetName(L); });
     m.addItem("Both layers as a performance...", [this] { askPresetName(2); });
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
+}
+
+// ---------------------------------------------------------------------------
+// Menus and dialogs open inside the plugin's window, not as windows of their own: in Logic a window of
+// its own takes a first click just to wake up, so every choice in it needed two.
+juce::PopupMenu::Options TandemEditor::menuOptions() {
+    auto o = juce::PopupMenu::Options().withTargetComponent(this).withMousePosition();
+    return isShowing() ? o.withParentComponent(this) : o;      // (off screen, as in the tests, there is no window to be inside)
+}
+
+void TandemEditor::showDialog(std::unique_ptr<juce::AlertWindow> w, std::function<void(int)> done) {
+    dialog_ = std::move(w);
+    addAndMakeVisible(*dialog_);                         // a child of the window (off the desktop)
+    dialog_->setCentrePosition(getLocalBounds().getCentre());
+    juce::Component::SafePointer<TandemEditor> safe(this);
+    auto* mine = dialog_.get();
+    dialog_->enterModalState(true, juce::ModalCallbackFunction::create([safe, done, mine](int result) {
+        if (safe == nullptr) return;
+        if (done) done(result);
+        juce::MessageManager::callAsync([safe, mine] {          // this dialog goes (not one opened since)
+            if (safe != nullptr && safe->dialog_.get() == mine) { safe->removeChildComponent(mine); safe->dialog_.reset(); safe->repaint(); }
+        });
+    }), false);
+}
+
+void TandemEditor::showAlert(const juce::String& title, const juce::String& text) {
+    auto w = std::make_unique<juce::AlertWindow>(title, text, juce::MessageBoxIconType::WarningIcon, this);
+    w->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey), juce::KeyPress(juce::KeyPress::escapeKey));
+    showDialog(std::move(w), nullptr);
 }
 
 // ---------------------------------------------------------------------------
@@ -1070,7 +1096,7 @@ void TandemEditor::showWaveMenu(juce::RangedAudioParameter* slot) {
         const int k = cur - td::WaveBank::kNumAlt;
         m.addItem("Forget your wave U" + juce::String(k + 1), [this, k] { proc_.clearUserWave(k); notice("U" + juce::String(k + 1) + " IS EMPTY NOW"); repaint(); });
     }
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::importWaveInto(juce::RangedAudioParameter* slot) {
@@ -1086,7 +1112,7 @@ void TandemEditor::importWaveInto(juce::RangedAudioParameter* slot) {
         if (k < 0) k = 0;                                   // all eight in use: the first goes
         EditScope edit(ed.proc_, "WAVE " + file.getFileNameWithoutExtension().toUpperCase());
         const auto err = ed.proc_.importWave(k, file);
-        if (err.isNotEmpty()) { juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Couldn't use that file", err); return; }
+        if (err.isNotEmpty()) { ed.showAlert("Couldn't use that file", err); return; }
         slot->beginChangeGesture(); TandemProcessor::set(slot, float(td::WaveBank::kNumAlt + k)); slot->endChangeGesture();
         ed.notice("U" + juce::String(k + 1) + ": " + ed.proc_.userWaveName(k).toUpperCase());
         ed.repaint();
@@ -1174,7 +1200,7 @@ void TandemEditor::showLayerMenu(int layer) {
     m.addItem("Write layer " + juce::String(layer + 1) + " as a patch...", [this, layer] { askPresetName(layer); });
     m.addItem("Copy it to layer " + juce::String(other + 1), [this, layer] { proc_.setEditLayer(layer); copyLayer(); });
     m.addItem("Swap the layers", [this] { swapLayers(); });
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::drawPatchWindow(juce::Graphics& g, int layer) {
@@ -1495,7 +1521,7 @@ void TandemEditor::showSlotMenu(int slot) {
             if (auto* p = slotParam(slot, f)) { p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture(); }
         refreshDepths(); repaint();
     });
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 void TandemEditor::copySlotToOtherLayer(int slot) {
@@ -1580,7 +1606,7 @@ void TandemEditor::showArpPartMenu(int part) {
             ch->beginChangeGesture(); TandemProcessor::set(ch, float(i)); ch->endChangeGesture();
             repaint();
         });
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+    m.showMenuAsync(menuOptions());
 }
 
 // ---------------------------------------------------------------------------
