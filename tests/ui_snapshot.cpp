@@ -23,6 +23,8 @@ struct Shot {
     float scale = 1.0f;
     bool assignLatched = false;
     const char* assignTo = nullptr;       // a control, as if ASSIGN and that knob turned
+    const char* tagFor = nullptr;         // a control, its value tag showing
+    const char* focusOn = nullptr;        // a control with keyboard focus
 };
 
 float gMult = 1.0f;                       // ui_snapshot <folder> <scale>: every shot that much larger
@@ -43,6 +45,8 @@ void shot(const juce::String& dir, const Shot& s) {
     if (s.shiftLatched) te->latchShift();
     if (s.assignTo) { te->assignFor(s.assignTo, 0.45f); te->touch(juce::String("m") + juce::String(te->assignedSlot() + 1) + "_amt"); }
     if (s.assignLatched) te->latchAssign();
+    if (s.tagFor) te->showTagFor(s.tagFor);
+    if (s.focusOn) te->focusControl(s.focusOn);
     auto img = ed->createComponentSnapshot(ed->getLocalBounds(), true, 1.0f);
     juce::File f(dir + "/" + s.file);
     f.deleteFile();
@@ -63,10 +67,13 @@ int main(int argc, char** argv) {
     shot(dir, {"ui_drawer.png", 1, 0, 0, nullptr, nullptr, true});
     shot(dir, {"ui_shift.png", 3, 2, 8, nullptr, nullptr, false, true});
     shot(dir, {"ui_80.png", 1, 1, 2, nullptr, nullptr, false, false, 0.8f});
-    const int dice = tpre::kNumFactory - 1;
+    int dice = 0;
+    for (int i = 0; i < tpre::kNumFactory; ++i) if (juce::String(tpre::kFactory[i].name) == "dice keys") dice = i;
     shot(dir, {"ui_dice_keys_matrix_via.png", dice, 2, 1});
     shot(dir, {"ui_assign_latched.png", dice, 2, 0, nullptr, nullptr, false, false, 1.0f, true});
     shot(dir, {"ui_shift_curve.png", dice, 2, 1, nullptr, nullptr, false, true});
     shot(dir, {"ui_vary_page.png", dice, 0, 3, "vary"});
+    shot(dir, {"ui_matrix_overview_tag.png", dice, 2, 0, nullptr, nullptr, false, false, 1.0f, false, nullptr, "f_cutoff"});
+    shot(dir, {"ui_keyboard_focus.png", 0, 1, 0, nullptr, nullptr, false, false, 1.0f, false, nullptr, nullptr, "f_res"});
     return 0;
 }

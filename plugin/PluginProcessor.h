@@ -69,15 +69,27 @@ public:
     int abSlot() const { return abSlot_; }
     void selectAB(int slot);
 
+    // ---- undo and redo (message thread): the sound before and after each edit made in the window.
+    // Patch, compare and DICE are edits too. Wheel nudges to the same control within a second merge.
+    void beginEdit(const juce::String& what);
+    void endEdit();
+    bool undo();
+    bool redo();
+    bool canUndo() const { return !undo_.empty(); }
+    bool canRedo() const { return !redo_.empty(); }
+    juce::String undoName() const { return undo_.empty() ? juce::String() : undo_.back().what; }
+    juce::String redoName() const { return redo_.empty() ? juce::String() : redo_.back().what; }
+
     // ---- the window
     static constexpr int kMenus = 5;         // the display's menus: perf, voice, mod, arp, fx
-    float uiScale = 0.8f;
+    float uiScale = 1.0f;                    // 100 %: the smallest print is 8 pt
     int menu = 2;
     int page[kMenus] = {0, 0, 0, 0, 0};      // the page in each
     int bank = 0;                            // the patch keys' bank, A-H
     bool drawerOpen = false;
     bool overdriven() const { return odrive_.load(std::memory_order_relaxed); }
     // The voices' lamps and the matrix's live output, as of the last block (the audio thread writes them).
+    // One lamp per voice as the VOICES setting counts them: in the stereo routing a note takes two.
     static constexpr int kMeterVoices = 16;
     float voiceMeter(int layer, int voice) const { return meters_[size_t(layer & 1)][size_t(juce::jlimit(0, kMeterVoices - 1, voice))].load(std::memory_order_relaxed); }
     int voiceCount(int layer) const { return vcount_[size_t(layer & 1)].load(std::memory_order_relaxed); }
@@ -112,6 +124,14 @@ private:
     Setting ab_[2];
     juce::String abName_[2];
     int abIndex_[2] = {0, 0};
+    struct Snapshot { Setting values, snap; juce::String name; int index = 0; };
+    struct UndoStep { juce::String what; Snapshot before, after; double when = 0; };
+    Snapshot snapshot() const { return {currentSetting(), presetSnap_, presetName_, presetIndex_}; }
+    void restore(const Snapshot& s);
+    std::vector<UndoStep> undo_, redo_;
+    Snapshot pending_;
+    juce::String pendingWhat_;
+    bool editing_ = false;
 
     double sampleRate_ = 48000;
     std::vector<float> l_, r_;

@@ -13,17 +13,27 @@ each section, push keys with lamps, and an amber display with four encoders.
 - **Top row:** the sound of the layer you are editing (oscillators, mixer, filter,
   LFOs, envelopes). **Bottom row:** playing and programming.
 - **Knobs and faders:** drag (Shift for fine), scroll, double-click for the default.
-- **Keys with lamps** (sync, sources, keytrack, routing and so on): click to step
-  through the settings; the lamps show which. **Lamp rings** (waveforms, octave):
-  click or drag.
+  While you turn one, a small tag beside it shows its value.
+- **Keys with lamps** (sync, sources, keytrack, routing and so on): click the key to
+  step through the settings, or click a lamp (or its word) to go straight to it. **Lamp
+  rings** (waveforms, octave): click a lamp, click the knob to step, or drag.
+- **Right-click** any control for its menu: its page, back to its default, set it to,
+  and for knobs the matrix can move, *Modulate from* and *Clear its modulation*.
+- **Undo and redo:** SHIFT + the page arrows, or Cmd-Z and Shift-Cmd-Z.
+- **Keyboard and VoiceOver:** Tab moves through the controls in panel order (an amber
+  outline shows where you are); the arrow keys change the one in focus, Shift for fine,
+  Space presses a key, Delete returns it to its default. VoiceOver reads each control's
+  name and value.
+- Controls that arrive in stage 2 are drawn faded until they work.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
-  or use the PAGE arrows, for the next page). The four encoders, or dragging a column,
+  or use the PAGE arrows, for the next page; click the title for a list of the pages). The four encoders, or dragging a column,
   change the four values above them. Touch any control and it shows its value.
 - **SHIFT:** click it, then touch a control, to open that control's page (SHIFT +
   CUTOFF: the filter routing, type, resonance type and keytrack; SHIFT + VCA: envelope
-  3). Right-clicking a control does the same. The red-orange legends are special
-  jobs: SHIFT + a patch key picks the bank, SHIFT + COMPARE starts from a blank patch.
-- **The mod matrix** has twelve slots, one per MOD page: SOURCE, DEST, AMOUNT, and VIA (a
+  3). The red legends are SHIFT's own jobs: SHIFT + a patch key picks the bank,
+  SHIFT + COMPARE starts from a blank patch, SHIFT + the page arrows undo and redo.
+- **The mod matrix** opens on an overview of every slot in use (click one to open it),
+  then has twelve slots, one per MOD page: SOURCE, DEST, AMOUNT, and VIA (a
   second source that scales the amount: put the mod wheel there and it brings the
   modulation in). SHIFT turns the AMOUNT column into the slot's curve: linear, exp,
   steps (twelfths: semitones on pitch) or smooth. **ASSIGN** is the quick way in: click
@@ -42,7 +52,8 @@ each section, push keys with lamps, and an amber display with four encoders.
   with each note; VARY sets how much you hear, from none at 0. The roll is saved with the
   patch, and a second's pause starts the pattern again, so a phrase varies the same way
   each time.
-- **Patches:** eight keys and eight banks. Right-click a patch key (or click the top
+- **Patches:** eight keys and eight banks; the first six hold 48 factory sounds (basses,
+  leads, pads, keys, plucks, effects). Right-click a patch key (or click the top
   line of the display) for the whole list. WRITE saves the sound as one of yours
   (in Music / Rumpus Room Records / Tandem / Presets); its lamp blinks when the patch
   has been changed. COMPARE flips between the patch as edited and as stored.
@@ -152,7 +163,7 @@ Cost, one layer at 44.1 kHz with effects on: 4 voices about 8% of one core here;
   - `ui_snapshot.cpp`: renders the window to PNGs
 - `art/`: the panel pipeline (Blender via `bpy`).
   - `layout_one.py`: the single source of control positions and legends
-  - `textures_one.py`: the screen-printing masks (navy, the red-orange SHIFT screen, the stripes, the drawer)
+  - `textures_one.py`: the screen-printing masks (navy, the oxblood SHIFT screen, the stripes, the drawer)
   - `render_one.py`: the panel (powder coat and print), knob strips, lamps; on top of `render.py`'s parts
   - `render_plugin_art.sh`, then `build_plugin_one.py`: the plugin's art and `Layout.h`
   - `render_one.sh`: the mockups (close-ups, display pages, the drawer)

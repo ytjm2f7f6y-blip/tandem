@@ -137,8 +137,9 @@ void TandemProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     sounding_.store(engine_.layer(0).soundingVoices(), std::memory_order_relaxed);
     for (int L = 0; L < tp::kLayersExposed; ++L) {
         const auto& layer = engine_.layer(L);
-        vcount_[size_t(L)].store(layer.voiceCount(), std::memory_order_relaxed);
-        for (int v = 0; v < kMeterVoices; ++v) meters_[size_t(L)][size_t(v)].store(layer.voiceMeter(v), std::memory_order_relaxed);
+        const int per = layer.binaural() ? 2 : 1;           // the stereo routing: a voice is two of the panel's
+        vcount_[size_t(L)].store(std::min(kMeterVoices, layer.voiceCount() * per), std::memory_order_relaxed);
+        for (int v = 0; v < kMeterVoices; ++v) meters_[size_t(L)][size_t(v)].store(layer.voiceMeter(v / per), std::memory_order_relaxed);
     }
     for (int d = 0; d < td::kNumModDests; ++d) modNow_[size_t(d)].store(engine_.layer(0).modNow(d), std::memory_order_relaxed);
 }
@@ -256,6 +257,59 @@ void TandemProcessor::selectAB(int slot) {
     presetName_ = abName_[slot]; presetIndex_ = abIndex_[slot];
 }
 
+// ---------------------------------------------------------------------------
+// Undo and redo
+void TandemProcessor::beginEdit(const juce::String& what) {
+    if (editing_) return;
+    pending_ = snapshot();
+    pendingWhat_ = what;
+    editing_ = true;
+}
+
+void TandemProcessor::endEdit() {
+    if (!editing_) return;
+    editing_ = false;
+    Snapshot now = snapshot();
+    if (now.values == pending_.values && now.index == pending_.index) return;
+    const double t = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    if (!undo_.empty() && redo_.empty() && undo_.back().what == pendingWhat_ && t - undo_.back().when < 1.0) {
+        undo_.back().after = std::move(now);         // the same control again, straight away: one step
+        undo_.back().when = t;
+        return;
+    }
+    undo_.push_back({pendingWhat_, std::move(pending_), std::move(now), t});
+    if (undo_.size() > 200) undo_.erase(undo_.begin());
+    redo_.clear();
+}
+
+void TandemProcessor::restore(const Snapshot& s) {
+    applySetting(s.values);
+    presetSnap_ = s.snap;
+    presetName_ = s.name;
+    presetIndex_ = s.index;
+}
+
+bool TandemProcessor::undo() {
+    editing_ = false;
+    if (undo_.empty()) return false;
+    UndoStep step = std::move(undo_.back());
+    undo_.pop_back();
+    restore(step.before);
+    step.when = 0;
+    redo_.push_back(std::move(step));
+    return true;
+}
+
+bool TandemProcessor::redo() {
+    editing_ = false;
+    if (redo_.empty()) return false;
+    UndoStep step = std::move(redo_.back());
+    redo_.pop_back();
+    restore(step.after);
+    undo_.push_back(std::move(step));
+    return true;
+}
+
 juce::AudioProcessorEditor* TandemProcessor::createEditor() { return new TandemEditor(*this); }
 
 void TandemProcessor::getStateInformation(juce::MemoryBlock& destData) {
@@ -274,7 +328,7 @@ void TandemProcessor::setStateInformation(const void* data, int sizeInBytes) {
     if (auto xml = getXmlFromBinary(data, sizeInBytes)) {
         auto state = juce::ValueTree::fromXml(*xml);
         if (!state.isValid() || !state.hasType(apvts.state.getType())) return;
-        uiScale = float(state.getProperty("uiScale", 0.8f));
+        uiScale = float(state.getProperty("uiScale", 1.0f));
         menu = juce::jlimit(0, kMenus - 1, int(state.getProperty("menu", 2)));
         for (int i = 0; i < kMenus; ++i) page[i] = int(state.getProperty("page" + juce::String(i), 0));
         bank = juce::jlimit(0, 7, int(state.getProperty("bank", 0)));

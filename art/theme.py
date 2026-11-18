@@ -46,7 +46,7 @@ THEMES = {
     "one": {
         "title": "Powder Blue · Colour Caps, one panel",
         "panel": BABY_BLUE, "panel_finish": "powder", "cheek": (0.92, 0.89, 0.81),
-        "ink": (0.05, 0.075, 0.13), "shift_ink": (0.80, 0.27, 0.12),
+        "ink": (0.05, 0.075, 0.13), "shift_ink": (0.30, 0.018, 0.012),     # oxblood: dark enough to read on the powder blue in thin strokes
         "knob": "capped", "key": (0.95, 0.94, 0.91), "key_finish": "plastic", "led": "red", "shift_cap": (0.80, 0.25, 0.14),
         "fader": "white", "display": (1.0, 0.72, 0.30),
         "tray": (0.10, 0.14, 0.24), "tray_ink": (0.93, 0.90, 0.80),

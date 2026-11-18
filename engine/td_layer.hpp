@@ -69,6 +69,7 @@ public:
     // For the window: how many voices there are, each one's loudness over the last block, and the
     // matrix's output per destination on the newest voice (as of the last block).
     int voiceCount() const { return nVoices_; }
+    bool binaural() const { return ctx_.binaural; }      // each voice two ears: two of the voices the panel counts
     float voiceMeter(int i) const { return i >= 0 && i < nVoices_ && voices_[size_t(i)].active ? voices_[size_t(i)].meter : 0.0f; }
     float modNow(int dest) const { return dest > 0 && dest < kNumModDests ? modNow_[size_t(dest)] : 0.0f; }
     const Voice& voice(int i) const { return voices_[size_t(std::clamp(i, 0, kMaxVoices - 1))]; }     // for tests

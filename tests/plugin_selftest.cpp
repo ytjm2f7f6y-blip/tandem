@@ -143,8 +143,10 @@ int main() {
         TandemProcessor p;
         p.setRateAndBufferSizeDetails(sr, block);
         p.prepareToPlay(sr, block);
-        p.loadPreset(tpre::kNumFactory - 1);           // "dice keys": NOTE RND on the cutoff, a vibrato via the wheel, VARY
-        CHECK(p.presetName() == "dice keys", "the new factory patch is the last one");
+        int diceKeys = 0;
+        for (int i = 0; i < tpre::kNumFactory; ++i) if (juce::String(tpre::kFactory[i].name) == "dice keys") diceKeys = i;
+        p.loadPreset(diceKeys);                        // "dice keys": NOTE RND on the cutoff, a vibrato via the wheel, VARY
+        CHECK(p.presetName() == "dice keys", "the dice keys patch is there");
         juce::AudioBuffer<float> io(2, block);
         juce::MidiBuffer chord;
         for (int n : {48, 55, 60}) chord.addEvent(juce::MidiMessage::noteOn(1, n, 0.8f), 0);
@@ -153,7 +155,7 @@ int main() {
         int lit = 0;
         for (int v = 0; v < TandemProcessor::kMeterVoices; ++v) lit += p.voiceMeter(0, v) > 0.003f;
         std::printf("      %d voice lamps lit of %d voices\n", lit, p.voiceCount(0));
-        CHECK(p.voiceCount(0) > 0 && lit == std::min(3, p.voiceCount(0)), "a three-note chord lights the voices it plays");
+        CHECK(p.voiceCount(0) == 16 && lit == 6, "16 voices by default; in the stereo routing a three-note chord lights two lamps a note");
         CHECK(p.modNow(td::kMdCutoff) != 0.0f, "the matrix's live output reaches the window (NOTE RND on the cutoff)");
 
         std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
@@ -174,7 +176,71 @@ int main() {
         CHECK(p.menu == 0 && juce::String(TandemEditor::pages(0)[size_t(p.page[0])].title) == "VARIATION", "SHIFT + DICE opens the VARIATION page");
         te->openPageFor("vm1_2");
         CHECK(p.menu == 1 && juce::String(TandemEditor::pages(1)[size_t(p.page[1])].title) == "VOICE", "SHIFT + a voice mode lamp opens the VOICE page");
-        CHECK(TandemEditor::pages(2).size() == size_t(td::kMatrixSlots) + 7, "twelve matrix pages, then note random and the rest");
+        CHECK(TandemEditor::pages(2).size() == size_t(td::kMatrixSlots) + 8 && juce::String(TandemEditor::pages(2)[0].title) == "MATRIX",
+              "the MOD menu: the matrix overview, twelve slot pages, then note random and the rest");
+    }
+    {   // The critique's fixes: undo, lamps that can be clicked, the right-click menu's work, the keyboard and VoiceOver.
+        TandemProcessor p;
+        p.setRateAndBufferSizeDetails(sr, block);
+        p.prepareToPlay(sr, block);
+        CHECK(juce::roundToInt(p.value("voices")) == 3 && p.uiScale == 1.0f, "a new instance: 16 voices, the window at 100 %");
+        std::unique_ptr<juce::AudioProcessorEditor> ed(p.createEditor());
+        auto* te = dynamic_cast<TandemEditor*>(ed.get());
+
+        p.beginEdit("CUTOFF"); TandemProcessor::set(p.param("cutoff"), 0.3f); p.endEdit();
+        p.beginEdit("RESONANCE"); TandemProcessor::set(p.param("resonance"), 0.6f); p.endEdit();
+        te->doUndo();
+        const bool undid = std::abs(p.value("resonance")) < 1e-4f && std::abs(p.value("cutoff") - 0.3f) < 1e-4f;
+        te->doUndo();
+        const bool undid2 = std::abs(p.value("cutoff") - 1.0f) < 1e-4f;
+        te->doRedo(); te->doRedo();
+        CHECK(undid && undid2 && std::abs(p.value("resonance") - 0.6f) < 1e-4f && std::abs(p.value("cutoff") - 0.3f) < 1e-4f,
+              "UNDO takes back one edit at a time, REDO puts them back");
+        p.beginEdit("PATCH"); p.loadPreset(3); p.endEdit();
+        const auto loaded = p.presetName();
+        te->doUndo();
+        CHECK(loaded == "resonant bass" && p.presetName() == "init" && std::abs(p.value("resonance") - 0.6f) < 1e-4f,
+              "UNDO after choosing a patch brings back the sound and the name before it");
+        for (int i = 0; i < 5; ++i) { p.beginEdit("GLIDE"); TandemProcessor::set(p.param("glide"), 0.1f * float(i + 1)); p.endEdit(); }
+        te->doUndo();
+        CHECK(std::abs(p.value("glide")) < 1e-4f, "turning the same control again straight away is one step to undo");
+
+        te->selectLampFor("f_route", 2);
+        const bool route = juce::roundToInt(p.value("route")) == 2;
+        te->selectLampFor("f_kt", 1);
+        const bool full = juce::roundToInt(p.value("keytrack")) == 2;
+        te->selectLampFor("f_kt", 1);
+        const bool off = juce::roundToInt(p.value("keytrack")) == 0;
+        te->selectLampFor("m_osc", 0);                  // both lit: OSC 1's lamp clicked takes it out
+        const bool osc2only = juce::roundToInt(p.value("mod_osc")) == 2;
+        te->selectLampFor("m_osc", 1);                  // and OSC 2 alone can't be taken out
+        te->selectLampFor("o1_wave", 4);
+        CHECK(route && full && off && osc2only && juce::roundToInt(p.value("mod_osc")) == 2 && juce::roundToInt(p.value("osc1_wave")) == 4,
+              "clicking a lamp (or a ring's lamp) goes straight to its setting; a lit lamp clicked again turns it off");
+
+        p.loadPreset(0);
+        te->modulateFrom("f_res", td::kMsLfo2);
+        const bool modded = juce::roundToInt(p.value("m1_dst")) == td::kMdResonance && juce::roundToInt(p.value("m1_src")) == td::kMsLfo2
+                            && std::abs(p.value("m1_amt") - 0.25f) < 1e-3f;
+        te->clearModulationOf("f_res");
+        CHECK(modded && juce::roundToInt(p.value("m1_dst")) == 0 && juce::roundToInt(p.value("m1_src")) == 0,
+              "right-click: Modulate from LFO 2 makes a slot; Clear its modulation empties it");
+        te->doUndo();
+        CHECK(juce::roundToInt(p.value("m1_dst")) == td::kMdResonance, "and UNDO brings the slot back");
+
+        juce::Component* cutoff = nullptr;
+        for (auto* c : te->getChildren()) if (c->getTitle() == "Cutoff") cutoff = c;
+        const float before = p.param("cutoff")->getValue();
+        if (cutoff) cutoff->keyPressed(juce::KeyPress(juce::KeyPress::downKey));
+        const auto reading = te->accessibleReading("f_cutoff"), shown = te->accessibleReading("disp"), arp = te->accessibleReading("arp_on");
+        std::printf("      VoiceOver: %s | %s | %s\n", reading.toRawUTF8(), arp.toRawUTF8(), shown.substring(0, 60).toRawUTF8());
+        CHECK(cutoff && std::abs(p.param("cutoff")->getValue() - (before - 0.01f)) < 1e-4f && reading.startsWith("slider: Cutoff, ") && reading.endsWith("Hz")
+                  && arp.endsWith("arrives in stage 2") && shown.startsWith("text: Display, MOD"),
+              "the keyboard: Cutoff's stand-in takes the arrow keys, and VoiceOver hears what each control is and reads");
+        int focusable = 0;
+        for (auto* c : te->getChildren()) focusable += c->getWantsKeyboardFocus();
+        std::printf("      %d controls on the keyboard's path\n", focusable);
+        CHECK(focusable > 100, "Tab reaches every knob, fader and key");
     }
     {   // 44.1 and 96 kHz, small and odd block sizes.
         bool ok = true;

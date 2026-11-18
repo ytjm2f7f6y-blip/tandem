@@ -2,7 +2,7 @@
 build_plugin_one.py writes these into plugin/HelpText.h."""
 
 S2 = " (Arrives in stage 2.)"
-SHIFT = " Right-click (or SHIFT, then touch) for its page."
+SHIFT = " SHIFT, then touch it, for its page; right-click for its menu (page, default, modulation)."
 
 HELP = {
     # ---- oscillators
@@ -12,7 +12,7 @@ HELP = {
     "o2_tune": ("OSC 2 tune", "-7 to +7 semitones. With sync on 2›1, raising it sweeps the synced harmonics."),
     "o1_fine": ("OSC 1 fine", "-50 to +50 cents. A few cents between the oscillators thickens the sound."),
     "o2_fine": ("OSC 2 fine", "-50 to +50 cents."),
-    "o_sync": ("Sync", "Hard sync. 2›1: oscillator 2 restarts with every cycle of oscillator 1; 1›2 the other way round. No lamp: off. Click to step through."),
+    "o_sync": ("Sync", "Hard sync. 2›1: oscillator 2 restarts with every cycle of oscillator 1; 1›2 the other way round. No lamp: off. Click to step through, or click a lamp to go straight to it."),
     "octave": ("Octave", "Moves the whole layer by -2 to +2 octaves."),
     "m_osc": ("Mod applies to", "Which oscillator the three modulation controls work on: 1, 2, or both lamps for both."),
     "m_detune": ("Detune", "Each oscillator is a centre oscillator and six sisters. Detune spreads them in pitch and across the stereo field."),
@@ -84,19 +84,19 @@ HELP = {
     "fx_size": ("Reverb size", "From a small room to a long hall." + SHIFT),
     "fx_freeze": ("Freeze", "Holds what is in the delay, looping, while new sound passes by."),
     # ---- programmer
-    "disp": ("Display", "The page chosen with the page keys, and the value of any control you move. The four encoders change the four columns above them; you can also drag a column."),
+    "disp": ("Display", "The page chosen with the page keys, and the value of any control you move. The four encoders change the four columns above them; you can also drag a column. Click the title for a list of this menu's pages, or the patch name for the patches."),
     "enc_0": ("Encoder 1", "Changes the first column on the display."),
     "enc_1": ("Encoder 2", "Changes the second column on the display."),
     "enc_2": ("Encoder 3", "Changes the third column on the display."),
     "enc_3": ("Encoder 4", "Changes the fourth column on the display."),
-    "shift": ("Shift", "Click it, then touch any control for its page on the display (red-orange legends name the special ones). Right-click a control does the same."),
+    "shift": ("Shift", "Click it, then touch any control for its page on the display. The red legends are SHIFT's own jobs: UNDO and REDO on the page arrows, INIT on COMPARE, the banks on the patch keys. On a matrix page, SHIFT turns the AMOUNT column into the slot's curve."),
     "compare": ("Compare", "Flips between the patch as you are editing it and as it was stored. SHIFT: start from a blank patch (INIT)."),
     "write": ("Write", "Saves the sound as one of your own patches. Its lamp lights when the patch has been changed."),
-    "page_prev": ("Page", "The previous page."),
-    "page_next": ("Page", "The next page."),
+    "page_prev": ("Page back / Undo", "The previous page. SHIFT: undo the last edit (Cmd-Z does it too)."),
+    "page_next": ("Page on / Redo", "The next page. SHIFT: redo (Shift-Cmd-Z)."),
     "pg_perf": ("Perf pages", "Patch, layer level and pan, bender and velocity."),
     "pg_voice": ("Voice pages", "Voice mode, unison, drift, filter routing, alternative waves, LFO 1, glide."),
-    "pg_mod": ("Mod pages", "The twelve-slot mod matrix (one slot a page: source, destination, amount, and VIA, a second source that scales the amount), note random, LFO 2, envelope 3, velocity and bender."),
+    "pg_mod": ("Mod pages", "First the matrix at a glance (click a line for its slot), then the twelve-slot mod matrix (one slot a page: source, destination, amount, and VIA, a second source that scales the amount), note random, LFO 2, envelope 3, velocity and bender."),
     "assign": ("Assign", "The quick way into the mod matrix. Click it (its lamp lights), then turn the knob you want to modulate: the display opens a free matrix slot with that knob as the destination and the amount following your turn. Pick the source with the first encoder. Click ASSIGN again to stop."),
     "pg_arp": ("Arp pages", "The arpeggiator." + S2),
     "pg_fx": ("FX pages", "Drive, chorus, EQ, delay and reverb."),

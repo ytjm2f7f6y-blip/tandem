@@ -92,7 +92,7 @@ def navy_and_shift():
     f_sub = F(MED, T["sub"])
     f_lamp = F(MED, T["lamp"])
     f_sec = F(BOLD, T["sec"])
-    f_shift = F(BOLD, 7.4)
+    f_shift = F(BOLD, 9.0)
 
     # Boxes: a fine outline, a solid header bar with the title knocked out.
     for bid, title, x0, x1, (y0, y1) in L.BOXES:
@@ -240,7 +240,7 @@ def drawer_ink():
     if L.DRAWER_OPEN:
         d = ImageDraw.Draw(im)
         dr = L.DRAWER
-        f_name, f_num, f_lamp, f_head = F(BOLD, 8.6), F(LEG, 7.6), F(MED, 6.9), F(BOLD, 8.4)
+        f_name, f_num, f_lamp, f_head = F(BOLD, 8.6), F(LEG, 8.0), F(MED, 8.0), F(BOLD, 8.4)
         text(d, (dr["x0"] + 20, dr["y0"] + 18), "SETUP  ·  SET ONCE, FORGET", f_head, anchor="lm", spacing=0.16)
         d.line([(P(dr["x0"] + 20), P(dr["y0"] + 27)), (P(dr["x1"] - 20), P(dr["y0"] + 27))], fill=255, width=int(0.6 * TEX))
         for c in L.CONTROLS:

@@ -22,8 +22,11 @@ layer 2's mixer are on the panel already; they say "stage 2" for now.
 Top row: the sound. Bottom row: playing and programming.
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
-default. Keys with lamps: click to step through; the lamps show which.
-Lamp rings (waveforms, octave): click or drag.
+default; a tag beside them shows the value as you turn. Keys with lamps:
+click to step through, or click a lamp to go straight to it. Lamp rings
+(waveforms, octave): click a lamp, or drag. Right-click any control for
+its menu. Undo: SHIFT + the page arrows, or Cmd-Z. Tab and the arrow
+keys work the panel from the keyboard; VoiceOver reads every control.
 
 The display: PERF, VOICE, MOD, ARP and FX each have pages (press again,
 or use the PAGE arrows). The four encoders under the display change the
@@ -31,9 +34,9 @@ four columns above them; you can also drag a column. Moving any control
 shows its value for a moment.
 
 SHIFT: click it, then touch any control, for that control's page (SHIFT
-+ CUTOFF: routing, type, resonance type, keytrack). Right-click does the
-same. Red-orange legends are their own jobs: SHIFT + a patch key picks
-the bank; SHIFT + COMPARE starts from a blank patch.
++ CUTOFF: routing, type, resonance type, keytrack). Red legends are its
+own jobs: SHIFT + a patch key picks the bank, SHIFT + COMPARE starts from
+a blank patch, SHIFT + the page arrows undo and redo.
 
 The mod matrix: twelve slots, one per MOD page (SOURCE, DEST, AMOUNT,
 and VIA, a second source that scales the amount). SHIFT turns AMOUNT

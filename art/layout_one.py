@@ -24,13 +24,13 @@ CHEEK = 22                      # cream end cheeks
 PANEL_X = (CHEEK, W - CHEEK)
 
 KNOBS = {"large": 30, "med": 24, "small": 18, "ring": 19, "trim": 13, "sel": 23}
-TYPE = {"head": 10.0, "name": 9.4, "num": 8.2, "sub": 7.9, "lamp": 7.2, "sec": 8.4}
+TYPE = {"head": 10.0, "name": 9.4, "num": 8.2, "sub": 8.2, "lamp": 8.0, "sec": 8.4}    # nothing printed under 8 pt
 LABEL_R = 15.5
 NAME_GAP = 23.0
 RING_LED_R = 27.0               # lamps round an encoder
 RING_LABEL_R = 38.0
 RING_ICON_R = 41.0
-LAMP_SP = 21.0                  # lamps over a key, apart
+LAMP_SP = 22.0                  # lamps over a key, apart
 FADER_CAP = (16.0, 24.0)
 FADER_BOX = (40.0, 52.0)
 FADER_PLATE_W = 12.0
@@ -130,7 +130,7 @@ knob("x_osc1", "med", 624, 182, "OSC 1", set_=0.55)
 knob("x_osc2", "med", 624, 280, "OSC 2", set_=0.4)
 knob("x_ext", "med", 624, 378, "EXT IN", set_=0.0)
 lamp("odrive", 598, 452, r=4.2, color="red", on=False)
-PRINT.append(("O.DRIVE", 610, 452, 7.4, "navy", "lm"))
+PRINT.append(("O.DRIVE", 610, 452, 8.0, "navy", "lm"))
 
 # ---- FILTER
 knob("f_cutoff", "large", 776, 182, "CUTOFF", set_=0.62)
@@ -179,10 +179,10 @@ knob("glide", "med", 238, 552, "GLIDE", set_=0.15)
 # Each layer's voice mode, in a printed grid: a key per layer steps it, a lamp under each mode.
 SUBHEADS.append(("VOICE MODE", 52, 208, 602))
 VOICE_MODES = ["POLY", "SOLO", "LEGATO", "UNISON", "POLY 2"]
-VM_X = [100, 128, 156, 184, 212]
+VM_X = [98, 130, 162, 194, 226]
 VM_Y = [630, 654]
 for i, s_ in enumerate(VOICE_MODES):
-    PRINT.append((s_, VM_X[i], 616, 6.9, "navy", "mm"))
+    PRINT.append((s_, VM_X[i], 616, 8.0, "navy", "mm"))
 for n, yy in zip((1, 2), VM_Y):
     PRINT.append((str(n), 48, yy, 8.4, "navy", "mm"))
     key(f"vmode_{n}", 72, yy, "", w=26, h=16, led=False)
@@ -220,14 +220,14 @@ for i, x in enumerate(ENC_X):
     CONTROLS.append({"id": f"enc_{i}", "type": "knob", "kind": "small", "x": x, "y": ENC_Y, "name": None, "sub": None,
                      "labels": [], "ticks": [], "set": [0.1, 0.4, 0.7, 0.25][i], "encoder": True, "shift": None})
 key("shift", 798, 548, "SHIFT", w=40, h=24, led=False, cap="shift")
-PRINT += [("HOLD + ANY CONTROL", 798, 584, 6.9, "shift", "mm"), ("OPENS ITS PAGE", 798, 593, 6.9, "shift", "mm")]
+PRINT += [("THEN TOUCH", 798, 582, 8.8, "shift", "mm"), ("ANY CONTROL", 798, 592, 8.8, "shift", "mm"), ("FOR ITS PAGE", 798, 602, 8.8, "shift", "mm")]
 key("assign", 798, 640, "ASSIGN", w=40, h=22)
-PRINT.append(("THEN TURN A KNOB", 798, 670, 6.9, "navy", "mm"))
+PRINT.append(("THEN TURN A KNOB", 798, 671, 8.0, "navy", "mm"))
 key("compare", 778, 742, "COMPARE", shift="INIT")
 key("write", 822, 742, "WRITE", shift="NAME")
-key("page_prev", 1196, 548, "", w=30, h=19, led=False)
-key("page_next", 1240, 548, "", w=30, h=19, led=False)
-PRINT += [("◂", 1196, 548, 9.0, "glyph", "mm"), ("▸", 1240, 548, 9.0, "glyph", "mm"), ("PAGE", 1218, 567, 7.6, "navy", "mm")]
+key("page_prev", 1196, 548, "", w=30, h=19, led=False, shift="UNDO")
+key("page_next", 1240, 548, "", w=30, h=19, led=False, shift="REDO")
+PRINT += [("◂", 1196, 548, 9.0, "glyph", "mm"), ("▸", 1240, 548, 9.0, "glyph", "mm"), ("PAGE", 1218, 567, 8.0, "navy", "mm")]
 for i, (pid, lab) in enumerate([("pg_perf", "PERF"), ("pg_voice", "VOICE"), ("pg_mod", "MOD"), ("pg_arp", "ARP"), ("pg_fx", "FX")]):
     key(pid, 1197, 606 + i * 38, lab, w=28, h=19, set_=(pid == "pg_mod"), label_side="right")
 SUBHEADS.append(("PATCH", 865, 1153, 712))
@@ -248,8 +248,8 @@ LADDER_Y0, LADDER_STEP = 744, 12.6
 for n, x in zip((1, 2), LADDER_X):
     for v in range(16):
         lamp(f"v{n}_{v + 1}", x, LADDER_Y0 - v * LADDER_STEP, r=1.5, style="led", on=(v < [3, 2][n - 1]))
-PRINT += [("1", 1384, LADDER_Y0, 6.6, "navy", "mm"), ("16", 1384, LADDER_Y0 - 15 * LADDER_STEP, 6.6, "navy", "mm"),
-          ("VOICES", 1384, 766, 7.4, "navy", "mm")]
+PRINT += [("1", 1384, LADDER_Y0, 8.0, "navy", "mm"), ("16", 1384, LADDER_Y0 - 15 * LADDER_STEP, 8.0, "navy", "mm"),
+          ("VOICES", 1384, 766, 8.0, "navy", "mm")]
 
 # ---- OUTPUT
 knob("volume", "large", 1549, 576, "VOLUME", set_=0.8)
@@ -259,11 +259,11 @@ key("setup", 1549, 712, "SETUP", w=40, h=22, led=False)
 BRAND = {"text": "RUMPUS ROOM RECORDS", "x": 52, "y": 34, "size": 16.5}
 TYPE_PLATE = {"text": "TYPE DS 8", "x": 52, "y": 55, "size": 8.0}
 WORDMARK = {"text": "TANDEM", "x": 1530, "y": 44, "size": 40}          # right edge
-SUBLINE = {"text": "BI-TIMBRAL SYNTHESIZER  ·  2 × 4 VOICES", "x": 1530, "y": 74, "size": 8.2}
+SUBLINE = {"text": "BI-TIMBRAL SYNTHESIZER  ·  2 × 16 VOICES", "x": 1530, "y": 74, "size": 8.2}
 STRIPES = {"x1": 1214, "y": 44, "w": 34, "h": 9, "gap": 6}             # five bars in the cap colours, ending at x1
 STRIPE_ORDER = ["osc", "vcf", "lfo", "env", "prog"]
 lamp("power", 1588, 40, r=5.5, color="red", on=True)
-PRINT.append(("POWER", 1588, 60, 7.0, "navy", "mm"))
+PRINT.append(("POWER", 1588, 60, 8.0, "navy", "mm"))
 SCREWS = [(36, 16), (W / 2, 16), (W - 36, 16), (36, H_PANEL - 10), (W / 2, H_PANEL - 10), (W - 36, H_PANEL - 10)]
 DISPLAY_SCREWS = [(DISPLAY["x"] + sx * (DISPLAY["w"] / 2 - 7), DISPLAY["y"] + sy * (DISPLAY["h"] / 2 - 7)) for sx in (-1, 1) for sy in (-1, 1)]
 

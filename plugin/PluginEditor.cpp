@@ -144,6 +144,7 @@ const std::vector<DisplayPage>& TandemEditor::pages(int menu) {
         std::vector<DisplayPage> v;
         // One page a slot, its four settings over the four encoders. (Static strings: the pages point at them.)
         static std::string names[td::kMatrixSlots][5];
+        v.push_back({"MATRIX", {nullptr, nullptr, nullptr, nullptr}, {nullptr, nullptr, nullptr, nullptr}});    // the overview
         for (int i = 0; i < td::kMatrixSlots; ++i) {
             const std::string n = std::to_string(i + 1);
             names[i][0] = "MATRIX " + n;
@@ -194,9 +195,59 @@ TandemArt::TandemArt() {
         stripFrames[k] = strip[k].isValid() ? strip[k].getHeight() / strip[k].getWidth() : 0;
     }
     legend = juce::Typeface::createSystemTypefaceFor(B::BarlowSemiCondensedSemiBold_ttf, B::BarlowSemiCondensedSemiBold_ttfSize);
+    // The plain powder coat, without anything printed or mounted on it: its light and shade alone. Laid over a
+    // control that is not working yet, it fades the control and its legends evenly, with no ghosts.
+    if (panel.isValid()) {
+        juce::Image clean = panel.createCopy().convertedToFormat(juce::Image::RGB);     // a copy: the panel itself stays as it is
+        {
+            juce::Image::BitmapData bd(clean, juce::Image::BitmapData::readWrite);
+            std::vector<float> lums;
+            for (int y = 0; y < bd.height; y += 7)
+                for (int x = 0; x < bd.width; x += 7) lums.push_back(bd.getPixelColour(x, y).getPerceivedBrightness());
+            std::nth_element(lums.begin(), lums.begin() + long(lums.size() * 3 / 4), lums.end());
+            const float coat = lums[lums.size() * 3 / 4];                     // most of the panel is bare coat
+            const auto coatColour = [&] {
+                double r = 0, gg = 0, b = 0; int n = 0;
+                for (int y = 0; y < bd.height; y += 9)
+                    for (int x = 0; x < bd.width; x += 9) {
+                        const auto c = bd.getPixelColour(x, y);
+                        if (std::abs(c.getPerceivedBrightness() - coat) < 0.04f) { r += c.getFloatRed(); gg += c.getFloatGreen(); b += c.getFloatBlue(); ++n; }
+                    }
+                return n ? juce::Colour::fromFloatRGBA(float(r / n), float(gg / n), float(b / n), 1.0f) : juce::Colour(0xffb3c1ca);
+            }();
+            for (int y = 0; y < bd.height; ++y)                                 // ink, keys and sockets: replaced by the coat
+                for (int x = 0; x < bd.width; ++x) {
+                    const auto c = bd.getPixelColour(x, y);
+                    if (std::abs(c.getPerceivedBrightness() - coat) > 0.05f || std::abs(c.getSaturation() - coatColour.getSaturation()) > 0.08f)
+                        bd.setPixelColour(x, y, coatColour);
+                }
+        }
+        const auto field = clean.rescaled(std::max(1, clean.getWidth() / 40), std::max(1, clean.getHeight() / 40), juce::Graphics::mediumResamplingQuality);
+        faded = juce::Image(juce::Image::RGB, panel.getWidth(), panel.getHeight(), false);
+        juce::Graphics g(faded);
+        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+        g.drawImage(field, faded.getBounds().toFloat());
+    }
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// One invisible stand-in per control: it takes keyboard focus and tells VoiceOver what the control is.
+// (Its workings are at the end of this file.)
+class ControlProxy final : public juce::Component {
+public:
+    ControlProxy(TandemEditor& e, int ci);
+    juce::String name() const;
+    juce::RangedAudioParameter* param() const;
+    juce::String valueString() const;
+    std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
+    bool keyPressed(const juce::KeyPress& k) override;
+    void focusGained(FocusChangeType) override;
+    void focusLost(FocusChangeType) override;
+    TandemEditor& ed;
+    const int index;
+};
+
 TandemEditor::TandemEditor(TandemProcessor& p) : AudioProcessorEditor(p), proc_(p) {
     key_.assign(size_t(kNumControls), {});
     drawn_.assign(size_t(kNumControls), ~uint64_t(0));
@@ -208,9 +259,23 @@ TandemEditor::TandemEditor(TandemProcessor& p) : AudioProcessorEditor(p), proc_(
         for (int f = 0; f < 5; ++f) slot_[i][f] = proc_.param("m" + juce::String(i + 1) + kSlotFields[f]);
     refreshDepths();
     setOpaque(true);
-    setWantsKeyboardFocus(false);
+    setWantsKeyboardFocus(true);
+    setFocusContainerType(FocusContainerType::keyboardFocusContainer);
+    setTitle("Tandem");
+    setDescription("Rumpus Room Records Tandem, a two-layer synthesizer. Tab moves through the controls; the arrow keys change the one in focus.");
+    for (int i = 0; i < kNumControls; ++i) {           // the keyboard and VoiceOver: one invisible stand-in per control
+        proxies_.push_back(std::make_unique<ControlProxy>(*this, i));
+        addAndMakeVisible(*proxies_.back());
+    }
+    proxies_.push_back(std::make_unique<ControlProxy>(*this, kDisplay));
+    addAndMakeVisible(*proxies_.back());
     setScale(proc_.uiScale);
     startTimerHz(int(kFrameRate));
+}
+
+TandemEditor::~TandemEditor() {
+    stopTimer();
+    proxies_.clear();
 }
 
 float TandemEditor::height() const { return H + (proc_.drawerOpen ? kDrawerH : 0.0f); }
@@ -219,6 +284,12 @@ void TandemEditor::setScale(float s) {
     s_ = juce::jlimit(0.5f, 1.5f, s);
     proc_.uiScale = s_;
     setSize(int(std::round(W * s_)), int(std::round(height() * s_)));
+    for (auto& p : proxies_) {                           // the stand-ins sit over their controls
+        if (p->index == kDisplay) { p->setBounds((juce::Rectangle<float>(kDispX, kDispY, kDispW, kDispH) * s_).toNearestInt()); continue; }
+        const auto& c = kControls[p->index];
+        p->setBounds((boundsOf(p->index) * s_).toNearestInt());
+        p->setVisible(!c.drawer || proc_.drawerOpen);
+    }
     repaint();
 }
 
@@ -280,7 +351,11 @@ float TandemEditor::destScale(int ci) const {
     return 0.5f;
 }
 
-bool TandemEditor::matrixPage() const { return proc_.menu == 2 && proc_.page[2] < td::kMatrixSlots; }
+int TandemEditor::shownSlot() const {
+    const int s = proc_.page[2] - kMatrixFirst;
+    return proc_.menu == 2 && s >= 0 && s < td::kMatrixSlots ? s : -1;
+}
+bool TandemEditor::matrixPage() const { return shownSlot() >= 0; }
 
 juce::RangedAudioParameter* TandemEditor::slotParam(int slot, int field) const {
     return slot >= 0 && slot < td::kMatrixSlots && field >= 0 && field < 5 ? slot_[slot][field] : nullptr;
@@ -321,7 +396,7 @@ bool TandemEditor::startAssign(int ci) {
     setOwn(slotParam(slot, 1), float(dest));
     if (juce::roundToInt(slotValue(slot, 0)) == td::kMsNone) setOwn(slotParam(slot, 0), float(td::kMsLfo1));    // a start: encoder 1 changes it
     assignSlot_ = slot;
-    showMenu(2, slot);
+    showMenu(2, slot + kMatrixFirst);
     return true;
 }
 
@@ -481,18 +556,49 @@ juce::String TandemEditor::typeKey() const {
     return r == 0 ? "type_st" : (r == 1 ? "type_par" : "type_ser");
 }
 
+// An edit the window makes, kept for UNDO: the sound before it and after.
+struct EditScope {
+    TandemProcessor& p;
+    EditScope(TandemProcessor& proc, const juce::String& what) : p(proc) { p.beginEdit(what); }
+    ~EditScope() { p.endEdit(); }
+};
+
+juce::String nameOf(juce::RangedAudioParameter* p) { return p ? p->getName(40).toUpperCase() : juce::String("EDIT"); }
+
 void TandemEditor::loadSlot(int slot) {
     const auto list = proc_.presetList();
     if (slot < 0 || slot >= int(list.size())) {
         notice("PATCH " + juce::String::charToString(juce::juce_wchar('A' + slot / 8)) + juce::String(slot % 8 + 1) + " IS EMPTY");
         return;
     }
-    proc_.loadPreset(slot);
+    {
+        EditScope edit(proc_, "PATCH " + list[size_t(slot)].name.toUpperCase());
+        proc_.loadPreset(slot);
+    }
     touchedUntil_ = noticeUntil_ = 0;
+    refreshDepths();
     repaint();
 }
 
-// SHIFT and a control: a special function where the panel prints one in red-orange, else its page.
+bool TandemEditor::doUndo() {
+    const auto what = proc_.undoName();
+    const bool ok = proc_.undo();
+    notice(ok ? "UNDO: " + what : juce::String("NOTHING TO UNDO"));
+    refreshDepths();
+    repaint();
+    return ok;
+}
+
+bool TandemEditor::doRedo() {
+    const auto what = proc_.redoName();
+    const bool ok = proc_.redo();
+    notice(ok ? "REDO: " + what : juce::String("NOTHING TO REDO"));
+    refreshDepths();
+    repaint();
+    return ok;
+}
+
+// SHIFT and a control: a special function where the panel prints one in red, else its page.
 void TandemEditor::openPageFor(const char* controlId) {
     shift_ = false;
     juce::String id(controlId);
@@ -502,7 +608,15 @@ void TandemEditor::openPageFor(const char* controlId) {
     if (id == "layer_2") { notice("COPY LAYER: STAGE 2"); return; }
     if (id == "play_mode") { notice("ZONES: STAGE 2"); return; }
     if (id == "tap") { notice("ARP DIVISION: STAGE 2"); return; }
-    if (id == "compare") { proc_.loadPreset(0); notice("INIT: A BLANK PATCH"); repaint(); return; }
+    if (id == "page_prev") { doUndo(); return; }
+    if (id == "page_next") { doRedo(); return; }
+    if (id == "compare") {
+        { EditScope edit(proc_, "INIT"); proc_.loadPreset(0); }
+        notice("INIT: A BLANK PATCH");
+        refreshDepths();
+        repaint();
+        return;
+    }
     if (id == "write") { askPresetName(); repaint(); return; }
     if (id.startsWith("patch_")) {
         proc_.bank = id.getLastCharacter() - '1';
@@ -520,24 +634,26 @@ void TandemEditor::openPageFor(const char* controlId) {
     else repaint();
 }
 
-void TandemEditor::press(int ci, const juce::MouseEvent& e) {
+void TandemEditor::press(int ci, bool back) {
     const auto& c = kControls[ci];
-    const bool back = e.mods.isAltDown();
     if (inert(ci)) {
         const bool l2 = is(c, "d_ch2") || is(c, "vmode_2") || startsWith(c, "vm2_") || startsWith(c, "v2_");
         notice(l2 ? "LAYER 2: STAGE 2" : "ARRIVES IN STAGE 2");
         return;
     }
     if (is(c, "assign")) { assign_ = !assign_; shift_ = false; repaintPts(boundsOf(ci)); repaint(); return; }
-    if (is(c, "dice")) { rollDice(); repaintPts(boundsOf(ci)); return; }
+    if (is(c, "dice")) { { EditScope edit(proc_, "DICE"); rollDice(); } repaintPts(boundsOf(ci)); return; }
     if (startsWith(c, "vm1_")) {                      // a voice mode lamp: straight to that mode
-        if (auto* p = proc_.param("voice_mode")) { p->beginChangeGesture(); TandemProcessor::set(p, float(c.id[4] - '0')); p->endChangeGesture(); }
+        if (auto* p = proc_.param("voice_mode")) {
+            EditScope edit(proc_, nameOf(p));
+            p->beginChangeGesture(); TandemProcessor::set(p, float(c.id[4] - '0')); p->endChangeGesture();
+        }
         touch("voice_mode");
         repaint();
         return;
     }
     if (startsWith(c, "v1_")) { touch("voices"); return; }
-    if (is(c, "shift")) { shift_ = !shift_; repaintPts(boundsOf(ci)); repaintPts({kDispX, kDispY, kDispW, kDispH}); return; }
+    if (is(c, "shift")) { shift_ = !shift_; assign_ = false; repaintPts(boundsOf(ci)); repaintPts({kDispX, kDispY, kDispW, kDispH}); return; }
     if (startsWith(c, "pg_")) {
         static const char* ids[5] = {"pg_perf", "pg_voice", "pg_mod", "pg_arp", "pg_fx"};
         for (int m = 0; m < 5; ++m)
@@ -553,9 +669,21 @@ void TandemEditor::press(int ci, const juce::MouseEvent& e) {
         return;
     }
     if (startsWith(c, "patch_")) { loadSlot(proc_.bank * 8 + (c.id[6] - '1')); return; }
-    if (is(c, "compare")) { proc_.selectAB(1 - proc_.abSlot()); notice(proc_.abSlot() == 1 ? "COMPARE: AS STORED" : "COMPARE: AS EDITED"); repaint(); return; }
+    if (is(c, "compare")) {
+        { EditScope edit(proc_, "COMPARE"); proc_.selectAB(1 - proc_.abSlot()); }
+        notice(proc_.abSlot() == 1 ? "COMPARE: AS STORED" : "COMPARE: AS EDITED");
+        refreshDepths();
+        repaint();
+        return;
+    }
     if (is(c, "write")) { askPresetName(); return; }
-    if (is(c, "f_prev") || is(c, "f_next")) { stepParam(proc_.param(typeKey()), is(c, "f_prev") ? -1 : 1, true); touch(typeKey()); repaint(); return; }
+    if (is(c, "f_prev") || is(c, "f_next")) {
+        auto* p = proc_.param(typeKey());
+        { EditScope edit(proc_, nameOf(p)); stepParam(p, is(c, "f_prev") ? -1 : 1, true); }
+        touch(typeKey());
+        repaint();
+        return;
+    }
     if (is(c, "setup")) { setDrawer(!proc_.drawerOpen); return; }
     if (is(c, "d_close")) { setDrawer(false); return; }
     if (is(c, "d_size")) {
@@ -567,10 +695,159 @@ void TandemEditor::press(int ci, const juce::MouseEvent& e) {
     }
     if (auto* p = param(ci)) {             // lamp keys, on / off keys and rings: step round
         if (c.type == Knob && c.kind != kRing) return;
-        stepParam(p, back ? -1 : 1, true);
+        { EditScope edit(proc_, nameOf(p)); stepParam(p, back ? -1 : 1, true); }
         touch(keyOf(ci));
+        if (c.type == Knob) showTagFor(c.id);
         repaintPts(boundsOf(ci));
     }
+}
+
+// A lamp key's or ring's lamps can be clicked (or their legends): straight to that setting.
+int TandemEditor::lampAt(int ci, juce::Point<float> pt) const {
+    if (ci < 0 || ci >= kNumControls) return -1;
+    const auto& c = kControls[ci];
+    const bool ring = c.type == Knob && c.kind == kRing;
+    if (!ring && !(c.type == Key && c.nLeds > 1)) return -1;
+    int best = -1;
+    float bestD = 1e9f;
+    for (int k = 0; k < c.nLeds; ++k) {
+        const auto& L = kLeds[c.led + k];
+        float d = pt.getDistanceFrom({L.x, L.y});
+        if (ring) {                                     // or its number or icon, further out
+            const float a = juce::degreesToRadians(c.steps[k]);
+            d = std::min(d, pt.getDistanceFrom({c.x + std::sin(a) * 39.0f, c.y - std::cos(a) * 39.0f}));
+            if (d < 7.0f && d < bestD) { best = k; bestD = d; }
+        } else {
+            const bool onLegend = std::abs(pt.x - L.x) < 10.0f && pt.y > L.y - 14.0f && pt.y < L.y + 5.0f;
+            if ((d < 6.5f || onLegend) && d < bestD) { best = k; bestD = d; }
+        }
+    }
+    return best;
+}
+
+void TandemEditor::selectLamp(int ci, int k) {
+    if (ci < 0 || ci >= kNumControls || k < 0) return;
+    const auto& c = kControls[ci];
+    if (inert(ci)) { press(ci); return; }
+    if (is(c, "d_size")) { const float sizes[3] = {0.8f, 1.0f, 1.25f}; setScale(sizes[juce::jlimit(0, 2, k)]); return; }
+    auto* p = param(ci);
+    if (!p) { press(ci); return; }
+    const int v = choice(ci);
+    int next = k;
+    if (c.type == Key)
+        switch (c.lampMode) {
+            case 1: next = v == k + 1 ? 0 : k + 1; break;          // the first setting has no lamp: a lit lamp clicked goes back to it
+            case 2: {                                               // OSC 1, both, OSC 2: each lamp in or out, never neither
+                bool in[2] = {v != 2, v != 0};
+                in[k & 1] = !in[k & 1];
+                if (!in[0] && !in[1]) return;
+                next = in[0] && in[1] ? 1 : (in[0] ? 0 : 2);
+                break;
+            }
+            default: break;
+        }
+    {
+        EditScope edit(proc_, nameOf(p));
+        p->beginChangeGesture();
+        TandemProcessor::set(p, p->convertFrom0to1(0.0f) + float(next));
+        p->endChangeGesture();
+    }
+    touch(keyOf(ci));
+    if (c.type == Knob) showTagFor(c.id);
+    repaintPts(boundsOf(ci));
+}
+
+void TandemEditor::selectLampFor(const char* controlId, int lamp) { selectLamp(indexOf(controlId), lamp); }
+
+// Right-click on a control: a small menu.
+void TandemEditor::showControlMenu(int ci) {
+    const auto& c = kControls[ci];
+    juce::String title = c.id;
+    if (const auto* e = helpFor(c.id)) title = juce::String::fromUTF8(e->name);
+    juce::PopupMenu m;
+    m.addSectionHeader(title);
+    bool hasPage = false;
+    for (const auto& sp : kShift) hasPage = hasPage || is(c, sp.control);
+    const juce::String id(c.id);
+    m.addItem(hasPage ? "Open its page  (SHIFT + it)" : "Show its value", [this, id] { openPageFor(id.toRawUTF8()); });
+    auto* p = param(ci);
+    if (p && !inert(ci))
+        m.addItem("Back to its default", [this, p] {
+            EditScope edit(proc_, nameOf(p));
+            p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture();
+            refreshDepths(); repaint();
+        });
+    if (const int d = destOf(ci)) {
+        juce::PopupMenu from;
+        for (int src = 1; src < td::kNumModSources; ++src)
+            from.addItem(tp::kModSources[src], [this, id, src] { modulateFrom(id.toRawUTF8(), src); });
+        m.addSubMenu("Modulate from", from);
+        int used = 0;
+        for (int i = 0; i < td::kMatrixSlots; ++i)
+            used += juce::roundToInt(slotValue(i, 1)) == d && juce::roundToInt(slotValue(i, 0)) != td::kMsNone;
+        m.addItem("Clear its modulation" + (used ? "  (" + juce::String(used) + (used == 1 ? " slot)" : " slots)") : juce::String()), used > 0, false,
+                  [this, id] { clearModulationOf(id.toRawUTF8()); });
+    }
+    if (p && (c.type == Key || c.kind == kRing) && dynamic_cast<juce::AudioParameterChoice*>(p)) {
+        auto* ch = dynamic_cast<juce::AudioParameterChoice*>(p);
+        juce::PopupMenu set;
+        for (int i = 0; i < ch->choices.size(); ++i)
+            set.addItem(ch->choices[i], !inert(ci), i == ch->getIndex(), [this, p, i, ci] {
+                EditScope edit(proc_, nameOf(p));
+                p->beginChangeGesture(); TandemProcessor::set(p, float(i)); p->endChangeGesture();
+                touch(keyOf(ci)); repaint();
+            });
+        m.addSubMenu("Set to", set);
+    }
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
+}
+
+void TandemEditor::modulateFrom(const char* controlId, int source) {
+    const int ci = indexOf(controlId), d = destOf(ci);
+    if (d == 0) return;
+    const int slot = freeSlotFor(d);
+    if (slot < 0) { notice("ALL 12 MATRIX SLOTS ARE IN USE"); return; }
+    {
+        EditScope edit(proc_, "MODULATE " + juce::String(controlId).toUpperCase());
+        auto set = [](juce::RangedAudioParameter* q, float v) { if (q) { q->beginChangeGesture(); TandemProcessor::set(q, v); q->endChangeGesture(); } };
+        set(slotParam(slot, 1), float(d));
+        set(slotParam(slot, 0), float(source));
+        if (std::abs(slotValue(slot, 2)) < 1e-4f) set(slotParam(slot, 2), 0.25f);
+    }
+    assignSlot_ = slot;
+    refreshDepths();
+    showMenu(2, slot + kMatrixFirst);
+}
+
+void TandemEditor::clearModulationOf(const char* controlId) {
+    const int d = destOf(indexOf(controlId));
+    if (d == 0) return;
+    {
+        EditScope edit(proc_, "CLEAR MODULATION");
+        for (int i = 0; i < td::kMatrixSlots; ++i)
+            if (juce::roundToInt(slotValue(i, 1)) == d)
+                for (int f = 0; f < 5; ++f)
+                    if (auto* q = slotParam(i, f)) { q->beginChangeGesture(); q->setValueNotifyingHost(q->getDefaultValue()); q->endChangeGesture(); }
+    }
+    refreshDepths();
+    notice("MODULATION CLEARED");
+    repaint();
+}
+
+// The display's title line: every page of this menu, to jump to.
+void TandemEditor::showPageMenu() {
+    juce::PopupMenu m;
+    const auto& ps = pages(proc_.menu);
+    m.addSectionHeader(juce::String(kMenuNames[proc_.menu]) + " pages");
+    for (int i = 0; i < int(ps.size()); ++i) {
+        juce::String t = ps[size_t(i)].title;
+        if (proc_.menu == 2 && i >= kMatrixFirst && i < kMatrixFirst + td::kMatrixSlots) {
+            const int slot = i - kMatrixFirst, src = juce::roundToInt(slotValue(slot, 0)), dst = juce::roundToInt(slotValue(slot, 1));
+            if (src != td::kMsNone && dst != td::kMdNone) t << "   " << tp::kModSources[src] << " > " << tp::kModDests[dst];
+        }
+        m.addItem(t, true, i == proc_.page[proc_.menu], [this, i] { showMenu(proc_.menu, i); });
+    }
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition());
 }
 
 void TandemEditor::showPresetMenu() {
@@ -643,7 +920,7 @@ const DisplayPage& TandemEditor::currentPage() const {
 juce::RangedAudioParameter* TandemEditor::pageParam(int col) const {
     const auto& pg = currentPage();
     if (col < 0 || col > 3 || pg.key[col] == nullptr) return nullptr;
-    if (col == 2 && shift_ && matrixPage()) return slotParam(proc_.page[2], 4);      // SHIFT: the slot's curve
+    if (col == 2 && shift_ && matrixPage()) return slotParam(shownSlot(), 4);      // SHIFT: the slot's curve
     if (std::strcmp(pg.key[col], "<type>") == 0) return proc_.param(typeKey());
     return proc_.param(pg.key[col]);
 }
@@ -757,7 +1034,7 @@ void TandemEditor::drawDisplay(juce::Graphics& g) {
     if (shift_ && !matrixPage()) {
         phosphor(g, "SHIFT", {kDispX + 6, top, kDispW - 12, 14}, 10.0f, juce::Justification::centredLeft);
         phosphor(g, "TOUCH A CONTROL FOR ITS PAGE", {kDispX + 6, kDispY + 24, kDispW - 12, 20}, 12.5f, juce::Justification::centred);
-        phosphor(g, "red-orange legends: their own jobs", {kDispX + 6, kDispY + 44, kDispW - 12, 16}, 9.5f, juce::Justification::centred, 0.65f);
+        phosphor(g, "red legends: their own jobs (UNDO, INIT, BANKS)", {kDispX + 6, kDispY + 44, kDispW - 12, 16}, 9.5f, juce::Justification::centred, 0.65f);
         return;
     }
     const bool touched = clock_ < touchedUntil_ && touchedKey_.isNotEmpty();
@@ -783,6 +1060,7 @@ void TandemEditor::drawDisplay(juce::Graphics& g) {
         phosphor(g, "THE ARPEGGIATOR ARRIVES IN STAGE 2", {kDispX + 6, kDispY + 28, kDispW - 12, 24}, 12.0f, juce::Justification::centred, 0.8f);
         return;
     }
+    if (proc_.menu == 2 && proc_.page[2] == 0) { drawOverview(g); return; }
     const float cw = 70.0f;
     for (int col = 0; col < 4; ++col) {
         auto* p = pageParam(col);
@@ -790,7 +1068,7 @@ void TandemEditor::drawDisplay(juce::Graphics& g) {
         const float x = kEncX[col] - cw / 2;
         juce::String label = pg.label[col];
         if (col == 2 && matrixPage()) {                    // the slot's curve: on SHIFT, or named beside the amount
-            const int crv = juce::roundToInt(slotValue(proc_.page[2], 4));
+            const int crv = juce::roundToInt(slotValue(shownSlot(), 4));
             if (shift_) label = "CURVE";
             else if (crv != td::kCurveLin) label = "AMT  " + tp::kModCurves[crv].toUpperCase();
         }
@@ -801,6 +1079,53 @@ void TandemEditor::drawDisplay(juce::Graphics& g) {
         phosphor(g, v, {x, kDispY + 32, cw, 17}, size, juce::Justification::centred);
         drawParam(p, {x + 7, kDispY + kDispH - 13, cw - 14, 5}, 1.0f);
     }
+}
+
+// The matrix at a glance: every slot in use, two columns of four; click one for its page.
+namespace {
+const char* const kSrcShort[td::kNumModSources] = {"", "OSC2", "LFO1", "LFO2", "ENV1", "ENV2", "VEL", "AT", "EXPR", "FOLLOW", "NOTE", "WHEEL", "RND"};
+const char* const kDstShort[td::kNumModDests] = {"", "LFO1 RATE", "CUTOFF", "DELTA", "ENV1>CUT", "ENV1 DEPTH", "LFO1 DEPTH", "FM", "WAVE",
+                                                 "OSC1 LVL", "OSC2 LVL", "RES", "ENV1 DEC", "DLY TIME", "VCA", "ENV1 ATK", "PITCH", "PAN"};
+constexpr int kOverviewRows = 4;
+}
+
+void TandemEditor::drawOverview(juce::Graphics& g) {
+    std::vector<int> used;
+    for (int i = 0; i < td::kMatrixSlots; ++i)
+        if (juce::roundToInt(slotValue(i, 0)) != td::kMsNone && juce::roundToInt(slotValue(i, 1)) != td::kMdNone) used.push_back(i);
+    if (used.empty()) {
+        phosphor(g, "NOTHING ROUTED YET", {kDispX + 6, kDispY + 26, kDispW - 12, 18}, 12.5f, juce::Justification::centred);
+        phosphor(g, "ASSIGN, then turn a knob; or the next page", {kDispX + 6, kDispY + 46, kDispW - 12, 16}, 9.5f, juce::Justification::centred, 0.65f);
+        return;
+    }
+    const float colW = (kDispW - 12) / 2, rowH = 13.0f, y0 = kDispY + 21;
+    for (int n = 0; n < int(used.size()) && n < 2 * kOverviewRows; ++n) {
+        const float x = kDispX + 6 + float(n / kOverviewRows) * colW, y = y0 + float(n % kOverviewRows) * rowH;
+        if (n == 2 * kOverviewRows - 1 && int(used.size()) > 2 * kOverviewRows) {
+            phosphor(g, "+ " + juce::String(int(used.size()) - n) + " MORE", {x + 14, y, colW - 18, rowH}, 9.0f, juce::Justification::centredLeft, 0.7f);
+            break;
+        }
+        const int i = used[size_t(n)];
+        const int src = juce::roundToInt(slotValue(i, 0)), dst = juce::roundToInt(slotValue(i, 1)), via = juce::roundToInt(slotValue(i, 3));
+        juce::String route = juce::String(kSrcShort[juce::jlimit(0, td::kNumModSources - 1, src)]);
+        if (via != td::kMsNone) route << "x" << kSrcShort[juce::jlimit(0, td::kNumModSources - 1, via)];
+        route << ">" << kDstShort[juce::jlimit(0, td::kNumModDests - 1, dst)];
+        const int amt = juce::roundToInt(slotValue(i, 2) * 63.0f);
+        phosphor(g, juce::String(i + 1), {x, y, 12, rowH}, 8.0f, juce::Justification::centredRight, 0.55f);
+        phosphor(g, route, {x + 16, y, colW - 46, rowH}, 9.0f, juce::Justification::centredLeft);
+        phosphor(g, (amt > 0 ? "+" : "") + juce::String(amt), {x + colW - 32, y, 28, rowH}, 9.0f, juce::Justification::centredRight, 0.85f);
+    }
+}
+
+int TandemEditor::overviewSlotAt(juce::Point<float> pt) const {
+    if (!(proc_.menu == 2 && proc_.page[2] == 0) || pt.y < kDispY + 21) return -1;
+    std::vector<int> used;
+    for (int i = 0; i < td::kMatrixSlots; ++i)
+        if (juce::roundToInt(slotValue(i, 0)) != td::kMsNone && juce::roundToInt(slotValue(i, 1)) != td::kMdNone) used.push_back(i);
+    const float colW = (kDispW - 12) / 2;
+    const int col = pt.x < kDispX + 6 + colW ? 0 : 1, row = int((pt.y - (kDispY + 21)) / 13.0f);
+    const int n = col * kOverviewRows + row;
+    return row >= 0 && row < kOverviewRows && n < int(used.size()) ? used[size_t(n)] : -1;
 }
 
 void TandemEditor::drawTypeWindow(juce::Graphics& g) {
@@ -864,9 +1189,100 @@ void TandemEditor::paint(juce::Graphics& g) {
         if (destOf(i)) drawModMarks(g, i);
         drawn_[size_t(i)] = look(i);
     }
+    // Controls that do nothing until stage 2: washed out, legends and all.
+    if (art_->faded.isValid()) {
+        auto fade = [&](juce::Rectangle<float> r) {
+            if (!r.intersects(clip)) return;
+            juce::Graphics::ScopedSaveState ss(g);
+            g.reduceClipRegion((r * s_).toNearestInt());
+            g.setOpacity(0.62f);
+            g.drawImage(art_->faded, juce::Rectangle<float>(0, 0, W, H) * s_);
+        };
+        for (int i = 0; i < kNumControls; ++i)
+            if (inert(i) && !is(kControls[i], "layer_1") && !kControls[i].drawer) fade(dimArea(i));
+        fade({146, 670, 86, 104});                       // the play modes' list
+        fade({1404, 515, 64, 18});                       // LAYER 2 over the mixer's second column
+    }
     if (clip.intersects(juce::Rectangle<float>(kDispX, kDispY, kDispW, kDispH))) drawDisplay(g);
     if (clip.intersects(juce::Rectangle<float>(kTypeX, kTypeY, kTypeW, kTypeH))) drawTypeWindow(g);
+    drawValueTag(g);
+    if (focusCi_ != kNone) {                            // the keyboard's place: an amber outline (cleared when focus leaves)
+        juce::Rectangle<float> r;
+        if (focusCi_ == kDisplay) r = {kDispX - 4, kDispY - 4, kDispW + 8, kDispH + 8};
+        else if (focusCi_ >= 0 && focusCi_ < kNumControls) {
+            const auto& c = kControls[focusCi_];
+            switch (c.type) {
+                case Knob: { const float rr = kKnobRadius[c.kind] + (c.kind == kRing ? 13.0f : 9.0f); r = {c.x - rr, c.y - rr, 2 * rr, 2 * rr}; break; }
+                case Fader: r = {c.x - 13, c.y - c.travel / 2 - 14, 26, c.travel + 28}; break;
+                case Key: r = {c.x - c.w / 2 - 5, c.y - c.h / 2 - 5, c.w + 10, c.h + 10}; break;
+                case Lamp: r = {c.x - 7, c.y - 7, 14, 14}; break;
+            }
+        }
+        g.setColour(kModAmber.withAlpha(0.3f));
+        g.drawRoundedRectangle(r * s_, 5 * s_, 4.0f * s_);
+        g.setColour(kModAmber);
+        g.drawRoundedRectangle(r * s_, 5 * s_, 1.4f * s_);
+    }
     drawnTitle_ = patchLabel() + juce::String(proc_.menu * 100 + proc_.page[proc_.menu]);
+}
+
+// Where a stage 2 control's fade goes: the control and the legends printed round it.
+juce::Rectangle<float> TandemEditor::dimArea(int ci) const {
+    const auto& c = kControls[ci];
+    switch (c.type) {
+        case Knob: {
+            const float r = kKnobRadius[c.kind];
+            if (c.kind == kRing) return {c.x - 48, c.y - 48, 96, 108};
+            return {c.x - r - 20, c.y - r - 12, 2 * r + 40, 2 * r + 45};
+        }
+        case Fader: return {c.x - 22, c.y - c.travel / 2 - 16, 44, c.travel + 52};
+        case Key: {
+            const float top = c.nLeds > 1 ? 22.0f : (c.nLeds == 1 ? 12.0f : 4.0f);
+            const float below = is(c, "vmode_2") ? 4.0f : 25.0f;          // its label, and a SHIFT legend under that
+            return {c.x - c.w / 2 - 12, c.y - c.h / 2 - top, c.w + 24, c.h + top + below};
+        }
+        case Lamp: return {c.x - c.w / 2 - 5, c.y - c.h / 2 - 5, c.w + 10, c.h + 10};
+    }
+    return {};
+}
+
+// The value tag: a small piece of the display's glass by a control while you turn it.
+juce::String TandemEditor::tagText(int ci) const {
+    auto* p = param(ci);
+    return p ? valueText(proc_, p) : juce::String();
+}
+
+juce::Rectangle<float> TandemEditor::tagRect(int ci, const juce::String& text) const {
+    const auto& c = kControls[ci];
+    const float w = juce::GlyphArrangement::getStringWidth(font(10.5f), text) / s_ + 14.0f, h = 16.0f;
+    juce::Point<float> at;
+    if (c.type == Fader) at = {c.x + 14.0f + w / 2, c.y + c.travel / 2 - c.travel * norm(ci)};
+    else if (c.type == Knob && c.kind == kRing) at = {c.x, c.y - 52.0f};
+    else at = {c.x, c.y - kKnobRadius[c.kind] - 18.0f};
+    auto r = juce::Rectangle<float>(w, h).withCentre(at);
+    return r.constrainedWithin({2, 2, W - 4, height() - 4});
+}
+
+void TandemEditor::showTagFor(const char* controlId) {
+    const int ci = indexOf(controlId);
+    if (ci < 0) return;
+    if (tagCi_ != kNone) repaintPts(tagShown_.expanded(3));
+    tagCi_ = ci;
+    tagUntil_ = clock_ + 0.9;
+    repaintPts(tagRect(ci, tagText(ci)).expanded(3));
+}
+
+void TandemEditor::drawValueTag(juce::Graphics& g) {
+    if (tagCi_ == kNone || clock_ > tagUntil_) return;
+    const auto text = tagText(tagCi_);
+    if (text.isEmpty()) return;
+    const auto r = tagRect(tagCi_, text);
+    tagShown_ = r;
+    g.setColour(juce::Colour(0xf01a1d17));
+    g.fillRoundedRectangle(r * s_, 3.0f * s_);
+    g.setColour(kModAmber.withAlpha(0.45f));
+    g.drawRoundedRectangle(r * s_, 3.0f * s_, 0.8f * s_);
+    phosphor(g, text, r, 10.5f, juce::Justification::centred);
 }
 
 void TandemEditor::drawKnob(juce::Graphics& g, int ci) {
@@ -906,7 +1322,7 @@ void TandemEditor::drawModMarks(juce::Graphics& g, int ci) {
     const float live = juce::jlimit(0.0f, 1.0f, v + proc_.modNow(d) * k);
     if (c.type == Knob) {
         const float r = kKnobRadius[c.kind];
-        dot(c.x, c.y + r + 5.6f, 1.25f, 0.95f);
+        dot(c.x, c.y + r + 5.8f, 1.9f, 1.0f);
         if (!arc) return;
         auto ang = [](float n) { return juce::degreesToRadians(-kSweep + 2.0f * kSweep * n); };
         const float ra = r + 3.6f;
@@ -920,7 +1336,7 @@ void TandemEditor::drawModMarks(juce::Graphics& g, int ci) {
         dot(c.x + std::sin(a) * ra, c.y - std::cos(a) * ra, 1.7f, 1.0f);
     } else if (c.type == Fader) {
         const float bot = c.y + c.travel / 2;
-        dot(c.x, bot + 12.0f, 1.25f, 0.95f);
+        dot(c.x, bot + 12.5f, 1.9f, 1.0f);
         if (!arc) return;
         const float x = c.x + 9.5f;
         auto yOf = [&](float n) { return bot - c.travel * n; };
@@ -940,6 +1356,11 @@ void TandemEditor::timerCallback() {
     for (int i = 0; i < kNumControls; ++i) {           // arcs follow the voices: redraw them every frame
         if (const int d = destOf(i); d && depth_[d] > 0.0f)
             if (assign_ || drag_ == i || (clock_ < touchedUntil_ + 0.1 && touchedKey_ == keyOf(i))) repaintPts(boundsOf(i));
+    }
+    if (tagCi_ != kNone) {                               // the value tag: follow it, then wipe it
+        repaintPts(tagShown_.expanded(3));
+        if (clock_ > tagUntil_) tagCi_ = kNone;
+        else if (auto* p = param(tagCi_)) repaintPts(tagRect(tagCi_, tagText(tagCi_)).expanded(3));
     }
     repaintPts({kDispX - 2, kDispY - 2, kDispW + 4, kDispH + 4});
     repaintPts({kTypeX - 2, kTypeY - 2, kTypeW + 4, kTypeH + 4});
@@ -974,32 +1395,45 @@ void TandemEditor::mouseExit(const juce::MouseEvent&) { hoverId_ = {}; }
 void TandemEditor::mouseDown(const juce::MouseEvent& e) {
     const auto pt = e.position / s_;
     const int h = hit(pt);
-    drag_ = kNone; dragCol_ = -1; dragMoved_ = false; dragAccum_ = 0; dragSteps_ = 0; dragLast_ = e.position;
+    drag_ = kNone; dragCol_ = -1; dragMoved_ = false; dragAccum_ = 0; dragSteps_ = 0; dragLast_ = e.position; pressLamp_ = -1;
     // ASSIGN, then a knob or fader that stands for a destination: a slot for it, and the drag sets the amount.
     if (assign_ && !e.mods.isPopupMenu() && h >= 0 && h < kNumControls && !inert(h)) {
         const auto& c = kControls[h];
         if (((c.type == Knob && c.kind != kRing && !c.encoder) || c.type == Fader)) {
+            proc_.beginEdit("ASSIGN");
             if (startAssign(h))
                 if (auto* p = slotParam(assignSlot_, 2)) {
                     drag_ = h; assigning_ = true; dragStartNorm_ = p->getValue(); p->beginChangeGesture();
                 }
+            if (!assigning_) proc_.endEdit();
             return;
         }
     }
-    const bool shiftEncoder = shift_ && matrixPage() && h >= 0 && h < kNumControls && kControls[h].encoder;   // SHIFT + encoder 3: the curve
-    if (h >= 0 && h < kNumControls && (e.mods.isPopupMenu() || shift_) && !shiftEncoder) {        // its page, or its red-orange job
+    if (h >= 0 && h < kNumControls && e.mods.isPopupMenu()) {        // right-click: the control's menu
         const auto& c = kControls[h];
-        if (e.mods.isPopupMenu() && startsWith(c, "patch_")) { showPresetMenu(); return; }
-        if (e.mods.isPopupMenu() && is(c, "d_size")) { showSizeMenu(); return; }
+        if (startsWith(c, "patch_")) { showPresetMenu(); return; }
+        if (is(c, "d_size")) { showSizeMenu(); return; }
+        if (c.encoder) { if (auto* p = pageParam(h - indexOf("enc_0"))) { touch(p->getParameterID().fromFirstOccurrenceOf("_", false, false)); } return; }
+        showControlMenu(h);
+        return;
+    }
+    const bool shiftEncoder = shift_ && matrixPage() && h >= 0 && h < kNumControls && kControls[h].encoder;   // SHIFT + encoder 3: the curve
+    if (h >= 0 && h < kNumControls && shift_ && !shiftEncoder) {        // its page, or its red job
+        const auto& c = kControls[h];
         if (!c.shiftCap) { openPageFor(c.id); return; }
     }
     if (h == kTypeWin) { showTypeMenu(); return; }
     if (h == kDisplay) {
         if (e.mods.isPopupMenu()) { showPresetMenu(); return; }
+        if (const int slot = overviewSlotAt(pt); slot >= 0) { showMenu(2, slot + kMatrixFirst); return; }
         drag_ = kDisplay;
         dragCol_ = displayColumnAt(pt);
-        if (dragCol_ < 0) { showPresetMenu(); drag_ = kNone; return; }
-        if (auto* p = pageParam(dragCol_)) { dragStartNorm_ = p->getValue(); p->beginChangeGesture(); }
+        if (dragCol_ < 0) {                             // the title line: the left half lists the pages, the right the patches
+            drag_ = kNone;
+            if (pt.x < kDispX + kDispW * 0.5f) showPageMenu(); else showPresetMenu();
+            return;
+        }
+        if (auto* p = pageParam(dragCol_)) { dragStartNorm_ = p->getValue(); proc_.beginEdit(nameOf(p)); p->beginChangeGesture(); }
         return;
     }
     if (h < 0 || h >= kNumControls) return;
@@ -1007,17 +1441,17 @@ void TandemEditor::mouseDown(const juce::MouseEvent& e) {
     if (c.encoder) {
         drag_ = h;
         dragCol_ = h - indexOf("enc_0");
-        if (auto* p = pageParam(dragCol_)) { dragStartNorm_ = p->getValue(); p->beginChangeGesture(); }
+        if (auto* p = pageParam(dragCol_)) { dragStartNorm_ = p->getValue(); proc_.beginEdit(nameOf(p)); p->beginChangeGesture(); }
         return;
     }
-    if (inert(h)) { pressed_ = c.type == Key ? h : kNone; if (c.type != Key) press(h, e); else repaintPts(boundsOf(h)); return; }
+    if (inert(h)) { pressed_ = c.type == Key ? h : kNone; if (c.type != Key) press(h); else repaintPts(boundsOf(h)); return; }
     if ((c.type == Knob && c.kind != kRing) || c.type == Fader) {
-        if (auto* p = param(h)) { drag_ = h; dragStartNorm_ = p->getValue(); p->beginChangeGesture(); }
+        if (auto* p = param(h)) { drag_ = h; dragStartNorm_ = p->getValue(); proc_.beginEdit(nameOf(p)); p->beginChangeGesture(); }
         return;
     }
-    if (c.type == Knob && c.kind == kRing) { drag_ = h; return; }      // a click steps it; a drag turns it
-    if (c.type == Key) { pressed_ = h; repaintPts(boundsOf(h)); }
-    if (c.type == Lamp && (startsWith(c, "vm1_") || startsWith(c, "v1_"))) press(h, e);
+    if (c.type == Knob && c.kind == kRing) { drag_ = h; if (auto* p = param(h)) proc_.beginEdit(nameOf(p)); return; }   // a click steps it (or picks a lamp); a drag turns it
+    if (c.type == Key) { pressed_ = h; pressLamp_ = lampAt(h, pt); repaintPts(boundsOf(h)); }
+    if (c.type == Lamp && (startsWith(c, "vm1_") || startsWith(c, "v1_"))) press(h);
 }
 
 void TandemEditor::mouseDrag(const juce::MouseEvent& e) {
@@ -1065,7 +1499,7 @@ void TandemEditor::mouseDrag(const juce::MouseEvent& e) {
     }
     if (c.type == Knob && c.kind == kRing) {
         if (std::abs(e.getDistanceFromDragStart()) > 3) dragMoved_ = true;
-        if (dragMoved_) { stepDrag(param(drag_), false); touch(keyOf(drag_)); }
+        if (dragMoved_) { stepDrag(param(drag_), false); touch(keyOf(drag_)); showTagFor(c.id); }
         return;
     }
     if (auto* p = param(drag_)) {
@@ -1077,13 +1511,16 @@ void TandemEditor::mouseDrag(const juce::MouseEvent& e) {
         if (is(c, "fx_drive") && proc_.value("drv_mode") < 0.5f && p->getValue() > 0.0f)
             if (auto* m = proc_.param("drv_mode")) { m->beginChangeGesture(); TandemProcessor::set(m, 1.0f); m->endChangeGesture(); }
         touch(keyOf(drag_));
+        showTagFor(c.id);
     }
 }
 
 void TandemEditor::mouseUp(const juce::MouseEvent& e) {
     const bool wasMoved = dragMoved_;
+    const auto pt = e.position / s_;
     if (assigning_) {                                   // one slot made: ASSIGN goes out, the slot's page stays up
         if (auto* p = slotParam(assignSlot_, 2)) p->endChangeGesture();
+        proc_.endEdit();
         assigning_ = false;
         assign_ = false;
         const int was = drag_;
@@ -1101,18 +1538,27 @@ void TandemEditor::mouseUp(const juce::MouseEvent& e) {
                 const int n = p->getNumSteps();
                 if (n > 1 && n < 200) stepParam(p, e.mods.isAltDown() ? -1 : 1, true);
             }
+        proc_.endEdit();
     } else if (drag_ >= 0 && drag_ < kNumControls) {
         const auto& c = kControls[drag_];
-        if (c.type == Knob && c.kind == kRing) { if (!wasMoved) press(drag_, e); }
-        else if (auto* p = param(drag_)) p->endChangeGesture();
+        if (c.type == Knob && c.kind == kRing) {
+            proc_.endEdit();
+            if (!wasMoved) {
+                const int k = lampAt(drag_, pt);
+                if (k >= 0) selectLamp(drag_, k); else press(drag_, e.mods.isAltDown());
+            }
+        } else if (auto* p = param(drag_)) { p->endChangeGesture(); proc_.endEdit(); }
     }
     drag_ = kNone; dragCol_ = -1;
     if (curveEdit) { shift_ = false; repaint(); }       // SHIFT is used up
     if (pressed_ >= 0) {
-        const int was = pressed_;
-        pressed_ = kNone;
+        const int was = pressed_, lamp = pressLamp_;
+        pressed_ = kNone; pressLamp_ = -1;
         repaintPts(boundsOf(was));
-        if (hit(e.position / s_) == was) press(was, e);
+        if (hit(pt) == was) {
+            if (lamp >= 0 && lamp == lampAt(was, pt)) selectLamp(was, lamp);
+            else press(was, e.mods.isAltDown());
+        }
     }
 }
 
@@ -1121,12 +1567,16 @@ void TandemEditor::mouseDoubleClick(const juce::MouseEvent& e) {
     const int h = hit(pt);
     juce::RangedAudioParameter* p = nullptr;
     if (h == kDisplay) p = pageParam(displayColumnAt(pt));
-    else if (h >= 0 && h < kNumControls) {
+    else if (h >= 0 && h < kNumControls && !inert(h)) {
         const auto& c = kControls[h];
         if (c.encoder) p = pageParam(h - indexOf("enc_0"));
         else if ((c.type == Knob && c.kind != kRing) || c.type == Fader) p = param(h);
     }
-    if (p) { p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture(); }
+    if (p) {
+        EditScope edit(proc_, nameOf(p));
+        p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture();
+        if (h >= 0 && h < kNumControls && !kControls[h].encoder) showTagFor(kControls[h].id);
+    }
 }
 
 void TandemEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) {
@@ -1137,6 +1587,7 @@ void TandemEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWh
     const int dir = d > 0 ? 1 : -1;
     auto nudge = [&](juce::RangedAudioParameter* p) {
         if (!p) return;
+        EditScope edit(proc_, nameOf(p));
         const int n = p->getNumSteps();
         if (n > 1 && n < 200) stepParam(p, dir, false);
         else p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->getValue() + d * (e.mods.isShiftDown() ? 0.03f : 0.2f)));
@@ -1157,5 +1608,163 @@ void TandemEditor::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWh
         return;
     }
     if (c.type == Key) return;
-    if (auto* p = param(h)) { nudge(p); touch(keyOf(h)); }
+    if (auto* p = param(h)) { nudge(p); touch(keyOf(h)); showTagFor(c.id); }
 }
+
+// ---------------------------------------------------------------------------
+// The keyboard: Cmd-Z and Shift-Cmd-Z, then each control's stand-in takes the arrows.
+bool TandemEditor::keyPressed(const juce::KeyPress& k) {
+    if (k.getModifiers().isCommandDown() && (k.getKeyCode() == 'Z' || k.getKeyCode() == 'z'))
+        return k.getModifiers().isShiftDown() ? (doRedo(), true) : (doUndo(), true);
+    if (k.getKeyCode() == juce::KeyPress::escapeKey && (shift_ || assign_)) { shift_ = assign_ = false; repaint(); return true; }
+    return false;
+}
+
+void TandemEditor::focusControl(const char* controlId) {
+    const int ci = indexOf(controlId);
+    for (auto& p : proxies_)
+        if (p->index == ci) p->grabKeyboardFocus();
+    focusChanged(ci);
+}
+
+juce::String TandemEditor::accessibleReading(const char* controlId) {
+    const int ci = juce::String(controlId) == "disp" ? int(kDisplay) : indexOf(controlId);
+    for (auto& p : proxies_)
+        if (p->index == ci) {
+            auto h = p->createAccessibilityHandler();
+            if (!h) return {};
+            const auto role = h->getRole();
+            juce::String r = role == juce::AccessibilityRole::slider ? "slider" : role == juce::AccessibilityRole::button ? "button"
+                           : role == juce::AccessibilityRole::staticText ? "text" : role == juce::AccessibilityRole::radioButton ? "radio" : "other";
+            return r + ": " + p->getTitle() + ", " + (h->getValueInterface() ? h->getValueInterface()->getCurrentValueAsString() : juce::String());
+        }
+    return {};
+}
+
+void TandemEditor::focusChanged(int ci) {
+    focusCi_ = ci;
+    repaint();
+}
+
+void TandemEditor::accessibleNudge(int ci, int dir, bool fine) {
+    if (ci == kDisplay) { const int n = int(pages(proc_.menu).size()); showMenu(proc_.menu, (proc_.page[proc_.menu] + dir + n) % n); return; }
+    if (ci < 0 || ci >= kNumControls || inert(ci)) { if (ci >= 0) press(ci); return; }
+    const auto& c = kControls[ci];
+    auto* p = c.encoder ? pageParam(ci - indexOf("enc_0")) : param(ci);
+    if (!p) { if (c.type == Key) press(ci, dir < 0); return; }
+    {
+        EditScope edit(proc_, nameOf(p));
+        const int n = p->getNumSteps();
+        p->beginChangeGesture();
+        if (n > 1 && n < 200) stepParam(p, dir, c.type == Key);
+        else p->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, p->getValue() + float(dir) * (fine ? 0.002f : 0.01f)));
+        p->endChangeGesture();
+    }
+    if (!c.encoder) { touch(keyOf(ci)); if (c.type != Key) showTagFor(c.id); }
+    repaintPts(boundsOf(ci));
+}
+
+void TandemEditor::accessibleActivate(int ci) {
+    if (ci == kDisplay) { showPageMenu(); return; }
+    if (ci < 0 || ci >= kNumControls) return;
+    const auto& c = kControls[ci];
+    if (c.type == Knob && c.kind != kRing && !c.encoder) { touch(keyOf(ci)); showTagFor(c.id); return; }
+    if (c.encoder) return;
+    press(ci);
+}
+
+// ---------------------------------------------------------------------------
+// The stand-ins' workings.
+ControlProxy::ControlProxy(TandemEditor& e, int ci) : ed(e), index(ci) {
+    setInterceptsMouseClicks(false, false);
+    setWantsKeyboardFocus(!(ci >= 0 && ci < kNumControls && kControls[ci].type == Lamp));     // lamps are read out with their key
+    setTitle(name());
+    if (ci >= 0 && ci < kNumControls)
+        if (const auto* h = helpFor(kControls[ci].id)) setDescription(juce::String::fromUTF8(h->text));
+}
+
+juce::String ControlProxy::name() const {
+    if (index == TandemEditor::kDisplay) return "Display";
+    const auto& c = kControls[index];
+    if (c.encoder) return "Encoder " + juce::String(index - indexOf("enc_0") + 1);
+    if (const auto* h = helpFor(c.id)) return juce::String::fromUTF8(h->name);
+    return c.id;
+}
+
+juce::RangedAudioParameter* ControlProxy::param() const {
+    if (index == TandemEditor::kDisplay || index < 0 || index >= kNumControls) return nullptr;
+    const auto& c = kControls[index];
+    return c.encoder ? ed.pageParam(index - indexOf("enc_0")) : ed.param(index);
+}
+
+juce::String ControlProxy::valueString() const {
+    if (index == TandemEditor::kDisplay) {
+        const auto& pg = ed.currentPage();
+        juce::String t = juce::String(TandemEditor::kMenuNames[ed.proc_.menu]) + " " + pg.title + ". ";
+        for (int col = 0; col < 4; ++col)
+            if (auto* p = ed.pageParam(col)) t << pg.label[col] << " " << valueText(ed.proc_, p) << ". ";
+        return t + "Patch " + ed.patchLabel();
+    }
+    if (ed.inert(index)) return "arrives in stage 2";
+    if (startsWith(kControls[index], "vm1_")) return juce::roundToInt(ed.proc_.value("voice_mode")) == kControls[index].id[4] - '0' ? "on" : "off";
+    if (auto* p = param()) return valueText(ed.proc_, p);
+    return {};
+}
+
+std::unique_ptr<juce::AccessibilityHandler> ControlProxy::createAccessibilityHandler() {
+    struct Value final : juce::AccessibilityValueInterface {
+        explicit Value(ControlProxy& o) : owner(o) {}
+        bool isReadOnly() const override { return owner.param() == nullptr || owner.ed.inert(owner.index); }
+        double getCurrentValue() const override { auto* p = owner.param(); return p ? p->getValue() : 0.0; }
+        juce::String getCurrentValueAsString() const override { return owner.valueString(); }
+        void setValue(double v) override {
+            if (auto* p = owner.param()) {
+                EditScope edit(owner.ed.proc_, nameOf(p));
+                p->beginChangeGesture(); p->setValueNotifyingHost(float(juce::jlimit(0.0, 1.0, v))); p->endChangeGesture();
+            }
+        }
+        void setValueAsString(const juce::String& t) override {
+            if (auto* p = owner.param()) setValue(p->getValueForText(t));
+        }
+        AccessibleValueRange getRange() const override {
+            auto* p = owner.param();
+            if (!p) return {};
+            const int n = p->getNumSteps();
+            return {{0.0, 1.0}, n > 1 && n < 200 ? 1.0 / double(n - 1) : 0.01};
+        }
+        ControlProxy& owner;
+    };
+    juce::AccessibilityRole role = juce::AccessibilityRole::button;
+    if (index == TandemEditor::kDisplay) role = juce::AccessibilityRole::staticText;
+    else {
+        const auto& c = kControls[index];
+        if (c.type == Knob || c.type == Fader) role = juce::AccessibilityRole::slider;
+        if (c.type == Lamp) role = startsWith(c, "vm1_") ? juce::AccessibilityRole::radioButton : juce::AccessibilityRole::ignored;
+    }
+    auto actions = juce::AccessibilityActions().addAction(juce::AccessibilityActionType::press, [this] { ed.accessibleActivate(index); });
+    return std::make_unique<juce::AccessibilityHandler>(*this, role, std::move(actions),
+                                                        juce::AccessibilityHandler::Interfaces{std::make_unique<Value>(*this)});
+}
+
+bool ControlProxy::keyPressed(const juce::KeyPress& k) {
+    const bool fine = k.getModifiers().isShiftDown();
+    const int code = k.getKeyCode();
+    if (k.getModifiers().isCommandDown()) return false;                 // Cmd-Z and the like: the window's
+    if (code == juce::KeyPress::upKey || code == juce::KeyPress::rightKey) { ed.accessibleNudge(index, 1, fine); return true; }
+    if (code == juce::KeyPress::downKey || code == juce::KeyPress::leftKey) { ed.accessibleNudge(index, -1, fine); return true; }
+    if (code == juce::KeyPress::pageUpKey || code == juce::KeyPress::pageDownKey) {
+        for (int i = 0; i < 10; ++i) ed.accessibleNudge(index, code == juce::KeyPress::pageUpKey ? 1 : -1, false);
+        return true;
+    }
+    if (code == juce::KeyPress::spaceKey || code == juce::KeyPress::returnKey) { ed.accessibleActivate(index); return true; }
+    if ((code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey || code == juce::KeyPress::homeKey) && param() && !ed.inert(index)) {
+        auto* p = param();
+        EditScope edit(ed.proc_, nameOf(p));
+        p->beginChangeGesture(); p->setValueNotifyingHost(p->getDefaultValue()); p->endChangeGesture();
+        return true;
+    }
+    return false;
+}
+
+void ControlProxy::focusGained(FocusChangeType) { ed.focusChanged(index); }
+void ControlProxy::focusLost(FocusChangeType) { if (ed.focusCi_ == index) ed.focusChanged(TandemEditor::kNone); }

@@ -28,7 +28,11 @@ inline juce::String attackT(float v, int) { return secs(td::Env::attackTime(v));
 inline juce::String decayT(float v, int) { return secs(td::Env::decayTime(v)); }
 inline juce::String holdT(float v, int) { return v <= 0.0f ? juce::String("off") : secs(td::Env::holdTime(v)); }
 inline juce::String fadeT(float v, int) { return v <= 0.0f ? juce::String("none") : secs(5.0f * v * v * v); }
-inline juce::String hz(float v) { return v >= 1000.0f ? juce::String(v / 1000.0f, v >= 10000.0f ? 1 : 2) + " kHz" : juce::String(v, v < 10 ? 2 : (v < 100 ? 1 : 0)) + " Hz"; }
+inline juce::String hz(float v) {
+    if (v >= 1000.0f) return juce::String(v / 1000.0f, v >= 10000.0f ? 1 : 2) + " kHz";
+    if (v >= 100.0f) return juce::String(juce::roundToInt(v)) + " Hz";          // (JUCE reads 0 decimal places as "all of them")
+    return juce::String(v, v < 10 ? 2 : 1) + " Hz";
+}
 inline juce::String cutoffT(float v, int) { return hz(16.0f * std::pow(2.0f, v * 10.3f)); }
 inline juce::String semis(float v, int) { const int s = juce::roundToInt(v); return (s > 0 ? "+" : "") + juce::String(s) + " st"; }
 inline juce::String cents(float v, int) { const int s = juce::roundToInt(v); return (s > 0 ? "+" : "") + juce::String(s) + " ct"; }
@@ -165,7 +169,7 @@ inline std::vector<Def> layerDefs() {
     // voices
     C("voice_mode", "Voice Mode", kVoiceModes, 0);
     C("unison", "Unison", kUnison, 1);
-    C("voices", "Voices", kVoices, 1);
+    C("voices", "Voices", kVoices, 3);      // 16: a plugin has no hardware to run out of (the stereo routing pairs them)
     F("drift", "Drift", 0, 1, 0.15f);
     F("pan_spread", "Voice Pan Spread", 0, 1, 0);
     F("glide", "Portamento", 0, 1, 0, glideT);
