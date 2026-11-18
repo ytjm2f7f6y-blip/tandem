@@ -2,10 +2,16 @@
 
 #include "PluginEditor.h"
 
+juce::AudioProcessor::BusesProperties TandemProcessor::buses() {
+    auto b = BusesProperties();
+   #if TD_SIDECHAIN
+    b = b.withInput("Side Chain", juce::AudioChannelSet::stereo(), false);     // the EXT IN: off until the host routes one in
+   #endif
+    return b.withOutput("Output", juce::AudioChannelSet::stereo(), true);
+}
+
 TandemProcessor::TandemProcessor()
-    : AudioProcessor(BusesProperties()
-                         .withInput("Side Chain", juce::AudioChannelSet::stereo(), false)     // the EXT IN: off until the host routes one in
-                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor(buses()),
       apvts(*this, nullptr, "params", tp::createLayout()) {
     for (int L = 0; L < tp::kLayersExposed; ++L) {
         reader_[L].attach(apvts, L);
@@ -35,6 +41,7 @@ TandemProcessor::TandemProcessor()
 bool TandemProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const {
     const auto out = layouts.getMainOutputChannelSet();
     if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono()) return false;
+    if (layouts.inputBuses.isEmpty()) return true;
     const auto in = layouts.getMainInputChannelSet();
     return in.isDisabled() || in == juce::AudioChannelSet::stereo() || in == juce::AudioChannelSet::mono();
 }

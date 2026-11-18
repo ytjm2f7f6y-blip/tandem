@@ -46,10 +46,12 @@ each section, push keys with lamps, and an amber display with four encoders.
   Both run on one clock: with HOST lit, Logic's tempo, and its beat while it plays, so
   arpeggios land on the bar; otherwise TEMPO, or TAP (tapping takes the clock from
   Logic). TAP's lamp flashes on the beat; ON's beats while its arpeggio plays.
-- **The side chain (EXT IN):** choose a track in the Side Chain menu of Tandem's plugin
-  header. Layer 1's EXT IN knob feeds it into its filter; the envelope follower (SHIFT +
-  EXT IN: attack, release, threshold, gain) is a matrix source on both layers, and with
-  the VCA on GATE it opens and closes the VCA instead (a held chord gated by a drum bus).
+- **The side chain (EXT IN)** is built but switched off in this build: giving Tandem an
+  input bus left it silent in Logic, so the plugin has none for now (`-DTD_SIDECHAIN=ON`
+  builds it with one). With it, layer 1's EXT IN knob feeds the side chain into its
+  filter; the envelope follower (SHIFT + EXT IN: attack, release, threshold, gain) is a
+  matrix source on both layers, and with the VCA on GATE it opens and closes the VCA.
+  Layer 2's EXT IN knob is CASCADE's level, and works.
 - **The display** shows the page chosen with PERF, VOICE, MOD, ARP or FX (press again,
   or use the PAGE arrows, for the next page; click the title for a list of the pages). The four encoders, or dragging a column,
   change the four values above them. Touch any control and it shows its value.
@@ -93,7 +95,7 @@ each section, push keys with lamps, and an amber display with four encoders.
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | One complete layer: oscillators, filter, LFO 1, envelopes, voice modes, the twelve-slot matrix with VIA and curves, NOTE RND, DICE and VARY, effects; the window, with ASSIGN, modulation dots and arcs, and voice lamps; presets | done |
-| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the side chain as EXT IN with the envelope follower, MIDI channel per layer, 16 two-layer factory sounds | **this build** |
+| 2 | The second layer (edit, swap, copy), the eight play modes with zones, key ranges and the randomiser, an arpeggiator per layer on a shared clock (host sync, tap tempo), the envelope follower (its side chain input is switched off for now), MIDI channel per layer, 16 two-layer factory sounds | **this build** |
 | 3 | Importing your own single-cycle waves, matrix polish, more presets, final-quality render | to do |
 
 ## Installing

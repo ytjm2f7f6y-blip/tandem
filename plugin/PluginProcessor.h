@@ -114,6 +114,7 @@ public:
     td::Engine& engine() { return engine_; }
 
 private:
+    static BusesProperties buses();          // the output; with TD_SIDECHAIN, the side chain input too
     using Setting = std::vector<float>;
     Setting currentSetting() const;
     void applySetting(const Setting& s);

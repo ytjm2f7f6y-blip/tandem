@@ -22,7 +22,7 @@ HELP = {
     # ---- mixer
     "x_osc1": ("OSC 1 level", "How much of oscillator 1 goes into the filter. Past about 6 it drives the filter's input (the O.DRIVE lamp lights)."),
     "x_osc2": ("OSC 2 level", "How much of oscillator 2 goes into the filter."),
-    "x_ext": ("EXT IN level", "On layer 1: the sound on Tandem's side chain, into the filter (choose it in the plugin header's Side Chain menu). On layer 2: layer 1's output, in the CASCADE play mode. SHIFT: the side chain's envelope follower (attack, release, threshold, gain)."),
+    "x_ext": ("EXT IN level", "On layer 2: how much of layer 1 goes into layer 2's filter in the CASCADE play mode. On layer 1: the side chain, into the filter (its input is switched off in this build). SHIFT: the side chain's envelope follower."),
     "odrive": ("Overdrive", "Lights when the mixer drives the filter's input into saturation."),
     # ---- filter
     "f_cutoff": ("Cutoff", "Where the filter starts to cut, 16 Hz to 20 kHz." + SHIFT),
@@ -55,7 +55,7 @@ HELP = {
     "e2_s": ("ENV 2 sustain", "The loudness held while the key is down."),
     "e2_r": ("ENV 2 release", "How long the sound dies away after the key is let go."),
     "e2_vel": ("Velocity to VCA", "How much harder playing makes it louder." + SHIFT),
-    "vca_src": ("VCA", "What sets the loudness: envelope 2, envelope 3 (on its page: SHIFT + VCA), or GATE, which holds it open; with a side chain in, the side chain's envelope follower opens and closes it instead."),
+    "vca_src": ("VCA", "What sets the loudness: envelope 2, envelope 3 (on its page: SHIFT + VCA), or GATE, which holds it open."),
     # ---- performance and arpeggiator
     "layer_1": ("Layer 1", "Edit layer 1: the top row, the arpeggiator, the effects and the pages are layer 1's while its lamp is lit. In SINGLE it is the layer that plays. SHIFT: swap the two layers."),
     "layer_2": ("Layer 2", "Edit layer 2 instead (the display's title says L2). In SINGLE it is the layer that plays. SHIFT: copy the layer you are editing onto the other one."),

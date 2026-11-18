@@ -35,9 +35,8 @@ ARPEGGIATOR: ON, HOLD, MODE, RANGE for the layer you edit (each layer
 has its own); division, swing and gate on the ARP pages. HOST follows
 Logic's tempo and beat; turn TEMPO or TAP for Tandem's own clock.
 
-Side chain: pick a track in the Side Chain menu of Tandem's header.
-Layer 1's EXT IN knob feeds it into the filter; its envelope follower is
-a matrix source, and with the VCA on GATE it opens the VCA.
+The side chain input is switched off in this build, so layer 1's EXT IN
+knob does nothing yet. Layer 2's EXT IN knob sets CASCADE's level.
 
 Knobs and faders: drag (Shift for fine), scroll, double-click for the
 default; a tag beside them shows the value as you turn. Keys with lamps:

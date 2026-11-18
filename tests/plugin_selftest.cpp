@@ -331,8 +331,8 @@ int main() {
         te->tap(1000.0); te->tap(1500.0); te->tap(2000.0);
         CHECK(std::abs(p.value("perf_tempo") - 120.0f) < 0.5f && p.value("perf_host") < 0.5f, "TAP: taps half a second apart set 120 BPM, and HOST goes off");
 
-        // The side chain: VCA ON/EXT opens with the input.
-        {
+        // The side chain: VCA ON/EXT opens with the input. (Only in builds with the side chain bus.)
+        if (TandemProcessor().getBusCount(true) > 0) {
             TandemProcessor q;
             auto layout = q.getBusesLayout();
             layout.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
@@ -395,6 +395,52 @@ int main() {
                       && juce::roundToInt(p.value("osc1_wave")) == (wave + 1) % 12,
                   "the mouse: a drag turns a knob of the layer being edited; a click steps a ring");
             te->pressControl("layer_1");
+        }
+
+        // What the window draws: a knob turned to a value shows the frame of its strip for that value
+        // (checked by matching the drawn knob against every frame, on whatever renderer this machine uses).
+        {
+            juce::SharedResourcePointer<TandemArt> art;
+            int ci = -1;
+            for (int i = 0; i < layout::kNumControls; ++i) if (juce::String(layout::kControls[i].id) == "f_res") ci = i;
+            const auto& c = layout::kControls[ci];
+            const auto& strip = art->strip[c.strip];
+            const int frames = art->stripFrames[c.strip], fw = strip.getWidth();
+            const float box = 2.0f * layout::kKnobRadius[c.kind] + 2.0f * layout::kShadowMargin;
+            const int bw = juce::roundToInt(box), x0 = juce::roundToInt(c.x - box / 2), y0 = juce::roundToInt(c.y - box / 2);
+            const float rr = layout::kKnobRadius[c.kind] * 0.8f;
+            std::vector<juce::Image> scaled;
+            for (int f = 0; f < frames; ++f)
+                scaled.push_back(strip.getClippedImage({0, f * fw, fw, fw}).rescaled(bw, bw, juce::Graphics::mediumResamplingQuality)
+                                     .convertedToFormat(juce::Image::ARGB));
+            te->pressControl("layer_1");
+            te->setScale(1.0f);
+            juce::String seen;
+            bool right = frames > 10;
+            for (float v : {0.0f, 0.3f, 0.5f, 0.8f, 1.0f}) {
+                TandemProcessor::set(p.param("resonance"), v);
+                const auto snap = te->createComponentSnapshot(te->getLocalBounds(), true, 1.0f).convertedToFormat(juce::Image::ARGB);
+                const juce::Image::BitmapData sd(snap, juce::Image::BitmapData::readOnly);
+                int best = -1;
+                double bestErr = 1e300;
+                for (int f = 0; f < frames; ++f) {
+                    const juce::Image::BitmapData fd(scaled[size_t(f)], juce::Image::BitmapData::readOnly);
+                    double err = 0;
+                    for (int y = 0; y < bw; ++y)
+                        for (int x = 0; x < bw; ++x) {
+                            const float dx = float(x) + 0.5f - box / 2, dy = float(y) + 0.5f - box / 2;
+                            if (dx * dx + dy * dy > rr * rr || x0 + x >= sd.width || y0 + y >= sd.height) continue;
+                            const auto a = sd.getPixelColour(x0 + x, y0 + y), b = fd.getPixelColour(x, y);
+                            err += std::abs(int(a.getRed()) - int(b.getRed())) + std::abs(int(a.getGreen()) - int(b.getGreen())) + std::abs(int(a.getBlue()) - int(b.getBlue()));
+                        }
+                    if (err < bestErr) { bestErr = err; best = f; }
+                }
+                const int want = juce::roundToInt(v * float(frames - 1));
+                seen << juce::String(v, 1) << ": frame " << best << " (" << want << ")  ";
+                right = right && std::abs(best - want) <= 1;
+            }
+            std::printf("      RESONANCE as drawn: %s of %d frames, %dx%d snapshot\n", seen.toRawUTF8(), frames, te->getWidth(), te->getHeight());
+            CHECK(right, "the knob drawn shows the strip's frame for its value");
         }
 
         // A factory sound can set layer 2 ("2:key") and the play mode.
