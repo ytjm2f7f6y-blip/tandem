@@ -78,7 +78,7 @@ jobs:
       - name: Play notes through the installed Audio Unit (as Logic hosts it)
         run: build/au_host_artefacts/Release/au_host 2>&1 | tee auhost.log
 
-      - name: The side chain test (Tandem SC: auval, then notes)
+      - name: "The side chain test (Tandem SC: auval, then notes)"
         continue-on-error: true
         run: |
           auval -strict -v aumu TnSC SamP 2>&1 | tee auval_sc.log
